@@ -69,25 +69,23 @@ export const INITIAL_HISTORY_ROUNDS: HistoryRound[] = [
   },
 ];
 
-function seededUnitRandom(seed: number): number {
-  let t = (seed + 0x6d2b79f5) | 0;
-  t = Math.imul(t ^ (t >>> 15), t | 1);
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+function createMaxBetLcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 0x19660d) + 0x3c6ef35f) >>> 0;
+    return s / 0x100000000;
+  };
 }
 
 export function generateCrashPoint(roundSeed?: number): number {
-  const r =
+  const rng =
     roundSeed !== undefined
-      ? seededUnitRandom(roundSeed * 2654435761)
-      : Math.random();
-  // Standard ~3% instant bust (1.00x - 1.02x) with 97% RTP heavy-tailed Crash curve
+      ? createMaxBetLcg((roundSeed + 0x9e3779b9) >>> 0)
+      : Math.random;
+  const r = rng();
+  // ~3% instant bust (1.00x) with 97% RTP heavy-tailed Crash curve matching [1.00, 100.00]
   if (r < 0.03) {
-    const sub =
-      roundSeed !== undefined
-        ? seededUnitRandom(roundSeed * 1597334677 + 17)
-        : Math.random();
-    return Number((1 + sub * 0.02).toFixed(2));
+    return 1.0;
   }
   const safeR = Math.min(r, 0.9999);
   const raw = 0.97 / (1 - safeR);
@@ -100,30 +98,38 @@ export function generateSimulatedBets(roundSeed: number): {
   totalBetsCount: number;
   baseTotalPool: number;
 } {
-  // Base simulated rows resembling the exact live feed density
-  const rows: LiveBetRow[] = INITIAL_SIMULATED_PLAYERS.map((p, idx) => {
-    const jitter = 0.85 + (((roundSeed * 31 + idx * 17) % 35) / 100);
-    const stake = Number((p.stake * jitter).toFixed(2));
-    const targetShift = (((roundSeed + idx * 7) % 9) - 4) * 0.05;
-    const targetCashout = Number(Math.max(1.08, p.target + targetShift).toFixed(2));
+  const rng = createMaxBetLcg(roundSeed + 0x6a5);
+  const rows: LiveBetRow[] = Array.from({ length: 30 }, (_, idx) => {
+    const prefix = String(Math.floor(rng() * 100)).padStart(2, '0');
+    const r1 = rng();
+    const r2 = rng();
+    const stake = Math.round((75 + r1 * r2 * 1900) * 100) / 100;
+    const targetCashout =
+      rng() < 0.62
+        ? Math.round((rng() < 0.7 ? 1.01 + rng() * 0.95 : 2 + rng() * 3) * 100) /
+          100
+        : 9999;
+
     return {
       id: `bot-${roundSeed}-${idx}`,
-      username: p.username,
+      username: `${prefix}*******`,
       stake,
       targetCashout,
       cashedOutAt: null,
       payout: 0,
-      status: 'active',
+      status: 'active' as const,
     };
-  });
+  }).sort((a, b) => b.stake - a.stake);
 
-  const visibleSum = rows.reduce((acc, r) => acc + r.stake, 0);
-  const extraPlayers = 2380 + ((roundSeed * 53) % 240);
-  const extraPool = 195000 + ((roundSeed * 4127) % 38000);
+  const statsRng = createMaxBetLcg(roundSeed + 0x23f3);
+  const startCount = 15 + Math.floor(statsRng() * 6);
+  const endCount = 1200 + Math.floor(statsRng() * 7800);
+  const avgBet = 58 + statsRng() * 52;
+  const targetPool = Math.round(endCount * avgBet);
 
   return {
     rows,
-    totalBetsCount: rows.length + extraPlayers,
-    baseTotalPool: Math.round(visibleSum + extraPool),
+    totalBetsCount: Math.max(rows.length, startCount + Math.round(endCount * 0.35)),
+    baseTotalPool: targetPool,
   };
 }

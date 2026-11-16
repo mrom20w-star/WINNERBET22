@@ -22,7 +22,7 @@ export function Header({
   return (
     <div className="sticky top-0 z-40" dir="rtl">
       <header className="border-b border-primary/25 bg-header text-header-foreground shadow-sm backdrop-blur-xl">
-        <div className="flex h-14 w-full items-center gap-2 px-3 md:h-16 md:px-4">
+        <div className="flex h-14 w-full items-center gap-2 px-3 md:h-16 md:px-5">
           <a
             dir="ltr"
             className="display flex items-center gap-1.5 text-base font-extrabold"

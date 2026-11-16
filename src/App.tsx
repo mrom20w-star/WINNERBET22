@@ -33,12 +33,27 @@ import {
   subscribeToFirebasePredictions,
   syncRoundPhaseToFirebase,
 } from './services/firebaseCrash';
-const WAITING_DURATION_MS = 4800;
-const CRASH_PAUSE_MS = 2200;
-const FLIGHT_GROWTH_K = 0.09;
+import {
+  fetchMaxBetCrashTick,
+  fetchMaxBetRoundById,
+  MAXBET_GROWTH_K,
+  MAXBET_POLL_INTERVAL_MS,
+  MAXBET_WAITING_MS,
+  MAXBET_WAITING_SEC,
+  MaxBetRemoteRound,
+} from './services/maxbetLive';
+
+const WAITING_DURATION_MS = MAXBET_WAITING_MS;
+const CRASH_PAUSE_MS = 6000;
+const FLIGHT_GROWTH_K = MAXBET_GROWTH_K;
 const INITIAL_BALANCE = 1000;
-const SESSION_STORAGE_KEY = 'maxbet_crash_session_v1';
+const SESSION_STORAGE_KEY = 'maxbet_crash_session_v2';
+const LEGACY_STORAGE_KEY = 'maxbet_crash_session_v1';
 const GLOBAL_EPOCH_MS = Date.UTC(2026, 10, 15, 0, 0, 0);
+
+function floorMultiplier(val: number): number {
+  return Math.floor(val * 100) / 100;
+}
 
 const HISTORY_ICON_STYLE = {
   maskImage: `url("${HISTORY_ICON_URI}")`,
@@ -114,7 +129,7 @@ function buildSimulatedForState(
   }
   const liveMult =
     phase === 'flight'
-      ? Math.exp(FLIGHT_GROWTH_K * (phaseElapsedMs / 1000))
+      ? floorMultiplier(Math.exp(FLIGHT_GROWTH_K * (phaseElapsedMs / 1000)))
       : crashPoint;
   const rows: LiveBetRow[] = sim.rows.map((row) => {
     const won =
@@ -243,7 +258,9 @@ function resolveTimelineToNow(
     if (nowEpoch < crashedAt) {
       phase = 'flight';
       phaseElapsedMs = Math.max(0, nowEpoch - flightStartedAt);
-      const liveMult = Math.exp(FLIGHT_GROWTH_K * (phaseElapsedMs / 1000));
+      const liveMult = floorMultiplier(
+        Math.exp(FLIGHT_GROWTH_K * (phaseElapsedMs / 1000))
+      );
       for (const idx of [0, 1] as const) {
         const s = slots[idx];
         if (
@@ -327,9 +344,12 @@ function resolveTimelineToNow(
     phase === 'waiting'
       ? Math.max(
           1,
-          Math.min(6, Math.ceil((remainingWait / WAITING_DURATION_MS) * 6))
+          Math.min(
+            MAXBET_WAITING_SEC,
+            Math.ceil((remainingWait / WAITING_DURATION_MS) * MAXBET_WAITING_SEC)
+          )
         )
-      : 6;
+      : MAXBET_WAITING_SEC;
   const flightCrashedSec =
     phase === 'crashed'
       ? Math.log(Math.max(1, crashPoint)) / FLIGHT_GROWTH_K
@@ -363,12 +383,25 @@ function resolveTimelineToNow(
 function loadBootSession(): {
   resolved: ResolvedTimelineState;
   hadSavedSession: boolean;
+  savedLiveRound?: {
+    roundNumber: number;
+    slots: [BetSlotState, BetSlotState];
+  };
 } {
   const now = Date.now();
+  let carriedBalance = INITIAL_BALANCE;
+  let carriedHistory = INITIAL_HISTORY_ROUNDS;
+
   try {
     const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedCrashSession>;
+      if (typeof parsed.balance === 'number') {
+        carriedBalance = parsed.balance;
+      }
+      if (Array.isArray(parsed.historyRounds)) {
+        carriedHistory = parsed.historyRounds;
+      }
       if (
         typeof parsed.roundNumber === 'number' &&
         typeof parsed.roundStartedAt === 'number' &&
@@ -378,34 +411,55 @@ function loadBootSession(): {
         Array.isArray(parsed.slots) &&
         parsed.slots.length === 2
       ) {
+        const hasPendingBet =
+          parsed.slots[0]?.activeBet !== null ||
+          parsed.slots[0]?.queuedBet !== null ||
+          parsed.slots[1]?.activeBet !== null ||
+          parsed.slots[1]?.queuedBet !== null;
+
+        // If crashPoint was Infinity (live server round), clamp safe boot preview until first crash_tick (~100ms)
+        const safeCrash = Number.isFinite(parsed.crashPoint)
+          ? parsed.crashPoint
+          : 100;
+
         return {
           hadSavedSession: true,
+          savedLiveRound: hasPendingBet
+            ? {
+                roundNumber: parsed.roundNumber,
+                slots: parsed.slots as [BetSlotState, BetSlotState],
+              }
+            : undefined,
           resolved: resolveTimelineToNow(
             {
               roundNumber: parsed.roundNumber,
               roundStartedAt: parsed.roundStartedAt,
-              crashPoint: parsed.crashPoint,
-              balance:
-                typeof parsed.balance === 'number'
-                  ? parsed.balance
-                  : INITIAL_BALANCE,
+              crashPoint: safeCrash,
+              balance: carriedBalance,
               slots: parsed.slots as [BetSlotState, BetSlotState],
-              historyRounds: Array.isArray(parsed.historyRounds)
-                ? parsed.historyRounds
-                : INITIAL_HISTORY_ROUNDS,
+              historyRounds: carriedHistory,
             },
             now
           ),
         };
+      }
+    } else {
+      const legacyRaw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacyRaw) {
+        const legacy = JSON.parse(legacyRaw) as Partial<PersistedCrashSession>;
+        if (typeof legacy.balance === 'number') carriedBalance = legacy.balance;
+        if (Array.isArray(legacy.historyRounds)) {
+          carriedHistory = legacy.historyRounds;
+        }
       }
     }
   } catch {
     // Fallback to global epoch timeline below
   }
 
-  const cycleMs = 15200;
+  const cycleMs = 20000;
   const sinceEpoch = Math.max(0, now - GLOBAL_EPOCH_MS);
-  const estRound = 4813 + Math.floor(sinceEpoch / cycleMs);
+  const estRound = 1320 + Math.floor(sinceEpoch / cycleMs);
   const roundStartedAt = now - (sinceEpoch % cycleMs);
   return {
     hadSavedSession: false,
@@ -414,9 +468,9 @@ function loadBootSession(): {
         roundNumber: estRound,
         roundStartedAt,
         crashPoint: generateCrashPoint(estRound),
-        balance: INITIAL_BALANCE,
+        balance: carriedBalance,
         slots: [createInitialSlot(0), createInitialSlot(1)],
-        historyRounds: INITIAL_HISTORY_ROUNDS,
+        historyRounds: carriedHistory,
       },
       now
     ),
@@ -427,6 +481,10 @@ export default function App() {
   const bootRef = useRef<{
     resolved: ResolvedTimelineState;
     hadSavedSession: boolean;
+    savedLiveRound?: {
+      roundNumber: number;
+      slots: [BetSlotState, BetSlotState];
+    };
     initialPerfNow: number;
   } | null>(null);
   if (bootRef.current === null) {
@@ -444,8 +502,16 @@ export default function App() {
   const [countdownSeconds, setCountdownSeconds] = useState<number>(
     initial.countdownSeconds
   );
+  const [waitStartTime, setWaitStartTime] = useState<number>(
+    initialPhaseStartPerf
+  );
   const [flightStartTime, setFlightStartTime] = useState<number>(
     initialPhaseStartPerf
+  );
+  const [crashStartTime, setCrashStartTime] = useState<number>(
+    initial.phase === 'crashed' && !bootRef.current.hadSavedSession
+      ? bootRef.current.initialPerfNow - 99000
+      : initialPhaseStartPerf
   );
   const [crashedMultiplier, setCrashedMultiplier] = useState<number>(
     initial.crashedMultiplier
@@ -504,17 +570,27 @@ export default function App() {
   const pendingFirebasePredictionRef = useRef<FirebasePredictionSignal | null>(
     null
   );
+  const activeFirebaseOverrideRef = useRef<number | null>(null);
   const consumedFirebaseTokensRef = useRef<Set<string>>(new Set());
   const phaseStartRef = useRef<number>(initialPhaseStartPerf);
   const lastSyncEpochRef = useRef<number>(Date.now());
   const toastCounterRef = useRef<number>(1);
+  const liveSyncActiveRef = useRef<boolean>(false);
+  const clockOffsetRef = useRef<number>(0);
+  const clockCalibratedRef = useRef<boolean>(false);
+  const minRttRef = useRef<number>(Number.POSITIVE_INFINITY);
+  const lastLiveRoundIdRef = useRef<number>(-1);
+  const lastSettledCrashRoundRef = useRef<number>(-1);
+  const pollFailuresRef = useRef<number>(0);
 
   const persistSession = useCallback(() => {
     try {
       const payload: PersistedCrashSession = {
         roundNumber: roundNumberRef.current,
         roundStartedAt: roundStartedAtRef.current,
-        crashPoint: crashPointRef.current,
+        crashPoint: Number.isFinite(crashPointRef.current)
+          ? crashPointRef.current
+          : 100,
         balance: balanceRef.current,
         slots: slotsRef.current,
         historyRounds: historyRoundsRef.current,
@@ -542,7 +618,9 @@ export default function App() {
       setRoundNumber(resolved.roundNumber);
       setPhase(resolved.phase);
       setCountdownSeconds(resolved.countdownSeconds);
+      setWaitStartTime(startPerf);
       setFlightStartTime(startPerf);
+      setCrashStartTime(startPerf);
       setCrashedMultiplier(resolved.crashedMultiplier);
       setFlightCrashedSec(resolved.flightCrashedSec);
       setBalance(resolved.balance);
@@ -572,130 +650,6 @@ export default function App() {
   useEffect(() => {
     persistSession();
   }, [balance, slots, historyRounds, phase, roundNumber, persistSession]);
-
-  useEffect(() => {
-    const handleBackground = () => {
-      persistSession();
-    };
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        persistSession();
-      } else {
-        const now = Date.now();
-        if (now - lastSyncEpochRef.current > 2000) {
-          const reconciled = resolveTimelineToNow(
-            {
-              roundNumber: roundNumberRef.current,
-              roundStartedAt: roundStartedAtRef.current,
-              crashPoint: crashPointRef.current,
-              balance: balanceRef.current,
-              slots: slotsRef.current,
-              historyRounds: historyRoundsRef.current,
-            },
-            now
-          );
-          applyResolvedState(reconciled);
-          lastSyncEpochRef.current = now;
-        }
-      }
-    };
-
-    window.addEventListener('pagehide', handleBackground);
-    window.addEventListener('beforeunload', handleBackground);
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => {
-      window.removeEventListener('pagehide', handleBackground);
-      window.removeEventListener('beforeunload', handleBackground);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [applyResolvedState, persistSession]);
-
-  useEffect(() => {
-    const maybeAdoptRemoteRound = (
-      remote: FirebaseRoundState,
-      isInitialFetch: boolean
-    ) => {
-      const now = Date.now();
-      if (now - remote.roundStartedAt > 15 * 60 * 1000) {
-        return;
-      }
-
-      const isNewerRound = remote.roundNumber > roundNumberRef.current;
-      const isDifferentSameRound =
-        remote.roundNumber === roundNumberRef.current &&
-        Math.abs(remote.roundStartedAt - roundStartedAtRef.current) > 1500 &&
-        (isInitialFetch || remote.updatedAt > lastSyncEpochRef.current);
-
-      if (
-        (!bootRef.current?.hadSavedSession && isInitialFetch) ||
-        isNewerRound ||
-        isDifferentSameRound
-      ) {
-        const reconciled = resolveTimelineToNow(
-          {
-            roundNumber: remote.roundNumber,
-            roundStartedAt: remote.roundStartedAt,
-            crashPoint: remote.crashPoint,
-            balance: balanceRef.current,
-            slots: slotsRef.current,
-            historyRounds: historyRoundsRef.current,
-          },
-          now
-        );
-        applyResolvedState(reconciled);
-        lastSyncEpochRef.current = now;
-        persistSession();
-      }
-    };
-
-    fetchCurrentRoundStateFromFirebase().then((remote) => {
-      if (remote) {
-        maybeAdoptRemoteRound(remote, true);
-      }
-      syncRoundPhaseToFirebase({
-        roundNumber: roundNumberRef.current,
-        phase: phaseRef.current,
-        crashPoint: crashPointRef.current,
-        roundStartedAt: roundStartedAtRef.current,
-        flightStartedAt: roundStartedAtRef.current + WAITING_DURATION_MS,
-      });
-    });
-
-    const unsubRound = subscribeToCurrentRoundFromFirebase((remote) => {
-      maybeAdoptRemoteRound(remote, false);
-    });
-
-    const unsubPredictions = subscribeToFirebasePredictions((signal) => {
-      if (consumedFirebaseTokensRef.current.has(signal.token)) {
-        return;
-      }
-
-      if (
-        phaseRef.current === 'waiting' &&
-        (signal.roundNumber === undefined ||
-          signal.roundNumber === roundNumberRef.current)
-      ) {
-        consumedFirebaseTokensRef.current.add(signal.token);
-        crashPointRef.current = signal.crashPoint;
-        syncRoundPhaseToFirebase({
-          roundNumber: roundNumberRef.current,
-          phase: 'waiting',
-          crashPoint: signal.crashPoint,
-          roundStartedAt: roundStartedAtRef.current,
-          flightStartedAt: roundStartedAtRef.current + WAITING_DURATION_MS,
-        });
-        persistSession();
-        return;
-      }
-
-      pendingFirebasePredictionRef.current = signal;
-    });
-
-    return () => {
-      unsubRound();
-      unsubPredictions();
-    };
-  }, [applyResolvedState, persistSession]);
 
   const showNotice = useCallback((type: 'success' | 'error', text: string) => {
     const id = ++toastCounterRef.current;
@@ -744,6 +698,662 @@ export default function App() {
     [showBanner]
   );
 
+  const triggerCrashState = useCallback(
+    (crashTarget: number, targetRoundId: number, suppressBanner = false) => {
+      if (lastSettledCrashRoundRef.current === targetRoundId) {
+        return;
+      }
+      lastSettledCrashRoundRef.current = targetRoundId;
+
+      const safeCrash = Number(Math.max(1, crashTarget).toFixed(2));
+      const crashSec = Math.log(Math.max(1, safeCrash)) / FLIGHT_GROWTH_K;
+      const nowPerf = performance.now();
+
+      crashPointRef.current = safeCrash;
+      activeFirebaseOverrideRef.current = null;
+      phaseStartRef.current = nowPerf;
+      phaseRef.current = 'crashed';
+      setCrashStartTime(suppressBanner ? nowPerf - 99000 : nowPerf);
+      setFlightCrashedSec(crashSec);
+      setCrashedMultiplier(safeCrash);
+      setPhase('crashed');
+
+      syncRoundPhaseToFirebase({
+        roundNumber: targetRoundId,
+        phase: 'crashed',
+        crashPoint: safeCrash,
+        roundStartedAt: roundStartedAtRef.current,
+        flightStartedAt: roundStartedAtRef.current + WAITING_DURATION_MS,
+      });
+      recordCrashHistoryToFirebase({
+        roundNumber: targetRoundId,
+        crashPoint: safeCrash,
+      });
+
+      // Settle simulated players who hadn't cashed out before crashTarget
+      setSimulatedRows((prev) =>
+        prev.map((row) =>
+          row.cashedOutAt !== null
+            ? row
+            : row.targetCashout < safeCrash
+            ? {
+                ...row,
+                cashedOutAt: row.targetCashout,
+                payout: Number((row.stake * row.targetCashout).toFixed(2)),
+                status: 'win',
+              }
+            : { ...row, status: 'loss', payout: 0 }
+        )
+      );
+
+      // Settle any pending auto-cashout strictly below crashTarget that RAF might have skipped due to polling boundary
+      let extraAutoPayout = 0;
+      const resolvedSlots: [BetSlotState, BetSlotState] = [
+        slotsRef.current[0],
+        slotsRef.current[1],
+      ];
+      for (const idx of [0, 1] as const) {
+        const s = resolvedSlots[idx];
+        if (
+          s.activeBet &&
+          s.activeBet.cashedOutAt === null &&
+          s.autoConfig.enabled &&
+          s.autoConfig.autoCashout < safeCrash
+        ) {
+          const autoPay = Number(
+            (s.activeBet.stake * s.autoConfig.autoCashout).toFixed(2)
+          );
+          extraAutoPayout += autoPay;
+          resolvedSlots[idx] = {
+            ...s,
+            activeBet: {
+              ...s.activeBet,
+              cashedOutAt: s.autoConfig.autoCashout,
+              payout: autoPay,
+            },
+          };
+        }
+      }
+      if (extraAutoPayout > 0) {
+        slotsRef.current = resolvedSlots;
+        setSlots(resolvedSlots);
+        setBalance((b) => Number((b + extraAutoPayout).toFixed(2)));
+        if (!suppressBanner) {
+          showBanner('win', `ربحت ${extraAutoPayout.toFixed(2)} ج.م`);
+        }
+      }
+
+      // Settle user bets & update history
+      let roundStake = 0;
+      let roundPayout = 0;
+      let bestCashout: number | null = null;
+      let hadLoss = false;
+
+      resolvedSlots.forEach((slot) => {
+        if (slot.activeBet) {
+          roundStake += slot.activeBet.stake;
+          if (slot.activeBet.cashedOutAt !== null) {
+            roundPayout += slot.activeBet.payout;
+            bestCashout =
+              bestCashout === null
+                ? slot.activeBet.cashedOutAt
+                : Math.max(bestCashout, slot.activeBet.cashedOutAt);
+          } else {
+            hadLoss = true;
+          }
+        }
+      });
+
+      if (roundStake > 0) {
+        setHistoryRounds((prev) => {
+          if (prev.some((h) => h.roundNumber === targetRoundId)) return prev;
+          const newHistory: HistoryRound = {
+            id: `r-${targetRoundId}-${Date.now()}`,
+            roundNumber: targetRoundId,
+            crashPoint: safeCrash,
+            stake: Number(roundStake.toFixed(2)),
+            cashoutAt: bestCashout,
+            payout: Number(roundPayout.toFixed(2)),
+            timestamp: 'الآن',
+          };
+          return [newHistory, ...prev.slice(0, 29)];
+        });
+
+        if (!suppressBanner && hadLoss && roundPayout === 0) {
+          showBanner('loss', `خسرت ${roundStake.toFixed(2)} ج.م`);
+        }
+      }
+    },
+    [showBanner]
+  );
+
+  const promoteSlotsForNextRound = useCallback(
+    (nextRoundId: number, currentRoundId: number) => {
+      // Settle any previous active bet against its real MaxBet crash point if user returned mid-transition
+      const prevSlots = slotsRef.current;
+      const hadUnresolvedPrev =
+        lastSettledCrashRoundRef.current !== currentRoundId &&
+        (prevSlots[0].activeBet !== null || prevSlots[1].activeBet !== null);
+
+      if (hadUnresolvedPrev && currentRoundId > 0) {
+        const snapshotSlots: [BetSlotState, BetSlotState] = [
+          prevSlots[0],
+          prevSlots[1],
+        ];
+        fetchMaxBetRoundById(currentRoundId).then((realRound) => {
+          if (!realRound) return;
+          const cp = realRound.crash_point;
+          let refundOrPayout = 0;
+          let stakeSum = 0;
+          let bestCo: number | null = null;
+          for (const s of snapshotSlots) {
+            if (!s.activeBet) continue;
+            stakeSum += s.activeBet.stake;
+            if (s.activeBet.cashedOutAt !== null) {
+              refundOrPayout += s.activeBet.payout;
+              bestCo =
+                bestCo === null
+                  ? s.activeBet.cashedOutAt
+                  : Math.max(bestCo, s.activeBet.cashedOutAt);
+            } else if (s.autoConfig.enabled && s.autoConfig.autoCashout < cp) {
+              const p = Number(
+                (s.activeBet.stake * s.autoConfig.autoCashout).toFixed(2)
+              );
+              refundOrPayout += p;
+              bestCo =
+                bestCo === null
+                  ? s.autoConfig.autoCashout
+                  : Math.max(bestCo, s.autoConfig.autoCashout);
+              setBalance((b) => Number((b + p).toFixed(2)));
+            }
+          }
+          if (stakeSum > 0) {
+            setHistoryRounds((prev) => {
+              if (prev.some((h) => h.roundNumber === currentRoundId)) return prev;
+              return [
+                {
+                  id: `r-${currentRoundId}-${Date.now()}`,
+                  roundNumber: currentRoundId,
+                  crashPoint: cp,
+                  stake: Number(stakeSum.toFixed(2)),
+                  cashoutAt: bestCo,
+                  payout: Number(refundOrPayout.toFixed(2)),
+                  timestamp: 'منذ لحظات',
+                },
+                ...prev.slice(0, 29),
+              ];
+            });
+          }
+        });
+      }
+
+      let deductedTotal = 0;
+      const updatedSlots: [BetSlotState, BetSlotState] = [
+        prevSlots[0],
+        prevSlots[1],
+      ];
+
+      for (const idx of [0, 1] as const) {
+        const s = prevSlots[idx];
+        const wonPrev =
+          s.activeBet !== null && s.activeBet.cashedOutAt !== null;
+        const lostPrev =
+          s.activeBet !== null && s.activeBet.cashedOutAt === null;
+
+        const nextAuto = { ...s.autoConfig };
+        if (nextAuto.enabled && s.activeBet !== null) {
+          if (wonPrev && nextAuto.onWin === 'stop') {
+            nextAuto.enabled = false;
+          } else if (lostPrev && nextAuto.onLoss === 'stop') {
+            nextAuto.enabled = false;
+          } else if (nextAuto.roundsRemaining !== null) {
+            const left = nextAuto.roundsRemaining - 1;
+            if (left <= 0) {
+              nextAuto.enabled = false;
+              nextAuto.roundsRemaining = null;
+            } else {
+              nextAuto.roundsRemaining = left;
+            }
+          }
+        }
+
+        let nextActiveBet: BetSlotState['activeBet'] = null;
+        if (s.queuedBet !== null) {
+          nextActiveBet = {
+            stake: s.queuedBet,
+            cashedOutAt: null,
+            payout: 0,
+          };
+        } else if (nextAuto.enabled) {
+          const available = balanceRef.current - deductedTotal;
+          if (available >= nextAuto.baseStake) {
+            deductedTotal += nextAuto.baseStake;
+            nextActiveBet = {
+              stake: nextAuto.baseStake,
+              cashedOutAt: null,
+              payout: 0,
+            };
+          } else {
+            nextAuto.enabled = false;
+            showNotice('error', 'الرصيد غير كافٍ لإكمال التشغيل التلقائي');
+          }
+        }
+
+        updatedSlots[idx] = {
+          ...s,
+          activeBet: nextActiveBet,
+          queuedBet: null,
+          autoConfig: nextAuto,
+        };
+      }
+
+      if (deductedTotal > 0) {
+        setBalance((b) => Number(Math.max(0, b - deductedTotal).toFixed(2)));
+      }
+      slotsRef.current = updatedSlots;
+      setSlots(updatedSlots);
+
+      const sim = generateSimulatedBets(nextRoundId);
+      setSimulatedRows(sim.rows);
+      setBaseStats({ count: sim.totalBetsCount, pool: sim.baseTotalPool });
+    },
+    [showNotice]
+  );
+
+  const applyRemoteMaxBetRound = useCallback(
+    (round: MaxBetRemoteRound, serverNowApprox: number) => {
+      const isInitialRemote = lastLiveRoundIdRef.current === -1;
+      const isNewRound = round.id !== lastLiveRoundIdRef.current;
+      const nowPerf = performance.now();
+
+      const opensAtMs = round.betting_opens_at
+        ? Date.parse(round.betting_opens_at)
+        : serverNowApprox;
+      const startedAtMs = round.started_at
+        ? Date.parse(round.started_at)
+        : round.betting_closes_at
+        ? Date.parse(round.betting_closes_at)
+        : opensAtMs + WAITING_DURATION_MS;
+
+      if (isNewRound) {
+        const prevRoundId = isInitialRemote
+          ? bootRef.current?.savedLiveRound?.roundNumber ?? -1
+          : lastLiveRoundIdRef.current;
+        const isSameSavedRound = isInitialRemote && prevRoundId === round.id;
+        lastLiveRoundIdRef.current = round.id;
+        roundNumberRef.current = round.id;
+        roundStartedAtRef.current = Number.isFinite(opensAtMs)
+          ? opensAtMs
+          : serverNowApprox;
+        setRoundNumber(round.id);
+
+        if (round.status === 'betting') {
+          if (!isSameSavedRound) {
+            promoteSlotsForNextRound(round.id, prevRoundId);
+          } else {
+            const sim = generateSimulatedBets(round.id);
+            setSimulatedRows(sim.rows);
+            setBaseStats({ count: sim.totalBetsCount, pool: sim.baseTotalPool });
+          }
+          // Apply pending Firebase override if user's Firebase script pushed one
+          const pending = pendingFirebasePredictionRef.current;
+          if (
+            pending &&
+            !consumedFirebaseTokensRef.current.has(pending.token) &&
+            (pending.roundNumber === undefined ||
+              pending.roundNumber === round.id)
+          ) {
+            consumedFirebaseTokensRef.current.add(pending.token);
+            activeFirebaseOverrideRef.current = pending.crashPoint;
+            crashPointRef.current = pending.crashPoint;
+            pendingFirebasePredictionRef.current = null;
+          } else {
+            activeFirebaseOverrideRef.current = null;
+            crashPointRef.current = Number.POSITIVE_INFINITY;
+          }
+
+          const elapsedWaitMs = Math.max(0, serverNowApprox - roundStartedAtRef.current);
+          const sec = Math.max(
+            1,
+            Math.min(
+              MAXBET_WAITING_SEC,
+              MAXBET_WAITING_SEC - Math.floor(elapsedWaitMs / 1000)
+            )
+          );
+          const waitStartPerf = nowPerf - elapsedWaitMs;
+          phaseStartRef.current = waitStartPerf;
+          phaseRef.current = 'waiting';
+          setWaitStartTime(waitStartPerf);
+          setPhase('waiting');
+          setCountdownSeconds(sec);
+          setCrashedMultiplier(1.0);
+          setFlightCrashedSec(0);
+          setIsRoundTransition(!isInitialRemote);
+          if (!isInitialRemote) {
+            window.setTimeout(() => setIsRoundTransition(false), 320);
+          }
+
+          syncRoundPhaseToFirebase({
+            roundNumber: round.id,
+            phase: 'waiting',
+            crashPoint: activeFirebaseOverrideRef.current ?? 1,
+            roundStartedAt: roundStartedAtRef.current,
+            flightStartedAt: roundStartedAtRef.current + WAITING_DURATION_MS,
+          });
+          return;
+        }
+
+        // Initial join mid-round (running or crashed)
+        if (!isSameSavedRound && isInitialRemote && prevRoundId > 0) {
+          promoteSlotsForNextRound(round.id, prevRoundId);
+        }
+
+        const sim = buildSimulatedForState(
+          round.id,
+          round.status === 'running' ? 'flight' : 'crashed',
+          round.status === 'running'
+            ? Math.max(0, serverNowApprox - startedAtMs)
+            : 0,
+          Number(round.crash_point ?? 1)
+        );
+        setSimulatedRows(sim.rows);
+        setBaseStats(sim.baseStats);
+
+        if (round.status === 'running') {
+          const flightElapsedMs = Math.max(0, serverNowApprox - startedAtMs);
+          const flightStartPerf = nowPerf - flightElapsedMs;
+          activeFirebaseOverrideRef.current = null;
+          crashPointRef.current = Number.POSITIVE_INFINITY;
+          phaseStartRef.current = flightStartPerf;
+          phaseRef.current = 'flight';
+          setFlightStartTime(flightStartPerf);
+          setPhase('flight');
+          setCrashedMultiplier(1.0);
+          setFlightCrashedSec(0);
+          setIsRoundTransition(false);
+
+          syncRoundPhaseToFirebase({
+            roundNumber: round.id,
+            phase: 'flight',
+            crashPoint: 1,
+            roundStartedAt: roundStartedAtRef.current,
+            flightStartedAt: startedAtMs,
+          });
+          return;
+        }
+
+        // Joined while already crashed
+        const cp = Number((round.crash_point ?? 1).toFixed(2));
+        triggerCrashState(cp, round.id, isInitialRemote);
+        return;
+      }
+
+      // Same round ID update
+      if (round.status === 'betting') {
+        const roundElapsedMs = Math.max(0, serverNowApprox - opensAtMs);
+        if (roundElapsedMs < WAITING_DURATION_MS) {
+          const targetWaitStartPerf = nowPerf - roundElapsedMs;
+          if (phaseRef.current !== 'waiting') {
+            phaseRef.current = 'waiting';
+            phaseStartRef.current = targetWaitStartPerf;
+            setWaitStartTime(targetWaitStartPerf);
+            setPhase('waiting');
+          } else if (Math.abs(targetWaitStartPerf - phaseStartRef.current) > 350) {
+            phaseStartRef.current = targetWaitStartPerf;
+            setWaitStartTime(targetWaitStartPerf);
+          }
+          const sec = Math.max(
+            1,
+            Math.min(
+              MAXBET_WAITING_SEC,
+              MAXBET_WAITING_SEC - Math.floor(roundElapsedMs / 1000)
+            )
+          );
+          setCountdownSeconds((prev) => (prev !== sec ? sec : prev));
+        } else if (phaseRef.current === 'waiting') {
+          // Smooth liftoff while server transitions betting -> running
+          const flightStartPerf = nowPerf - (roundElapsedMs - WAITING_DURATION_MS);
+          phaseStartRef.current = flightStartPerf;
+          phaseRef.current = 'flight';
+          setFlightStartTime(flightStartPerf);
+          setPhase('flight');
+          setIsRoundTransition(false);
+        }
+        return;
+      }
+
+      if (round.status === 'running') {
+        // Check if Firebase override just fired and was already triggered locally
+        if (
+          activeFirebaseOverrideRef.current !== null &&
+          phaseRef.current === 'crashed'
+        ) {
+          return;
+        }
+
+        const flightElapsedMs = Math.max(0, serverNowApprox - startedAtMs);
+        const targetStartPerf = nowPerf - flightElapsedMs;
+
+        if (phaseRef.current === 'waiting') {
+          const pending = pendingFirebasePredictionRef.current;
+          if (
+            pending &&
+            !consumedFirebaseTokensRef.current.has(pending.token) &&
+            (pending.roundNumber === undefined ||
+              pending.roundNumber === round.id)
+          ) {
+            consumedFirebaseTokensRef.current.add(pending.token);
+            activeFirebaseOverrideRef.current = pending.crashPoint;
+            crashPointRef.current = pending.crashPoint;
+            pendingFirebasePredictionRef.current = null;
+          } else if (activeFirebaseOverrideRef.current === null) {
+            crashPointRef.current = Number.POSITIVE_INFINITY;
+          }
+
+          phaseStartRef.current = targetStartPerf;
+          phaseRef.current = 'flight';
+          setFlightStartTime(targetStartPerf);
+          setPhase('flight');
+          setIsRoundTransition(false);
+          syncRoundPhaseToFirebase({
+            roundNumber: round.id,
+            phase: 'flight',
+            crashPoint: activeFirebaseOverrideRef.current ?? 1,
+            roundStartedAt: roundStartedAtRef.current,
+            flightStartedAt: startedAtMs,
+          });
+        } else if (
+          phaseRef.current === 'flight' &&
+          Math.abs(targetStartPerf - phaseStartRef.current) > 450
+        ) {
+          // Resync drift (e.g., returning from background tab)
+          phaseStartRef.current = targetStartPerf;
+          setFlightStartTime(targetStartPerf);
+        }
+        return;
+      }
+
+      if (round.status === 'crashed' && phaseRef.current !== 'crashed') {
+        const cp = Number((round.crash_point ?? 1).toFixed(2));
+        triggerCrashState(cp, round.id, false);
+      }
+    },
+    [promoteSlotsForNextRound, triggerCrashState]
+  );
+
+  // Live 400ms polling loop synced directly with MaxBet Crash server
+  useEffect(() => {
+    let cancelled = false;
+    let timerId: number | undefined;
+
+    const pollOnce = async () => {
+      try {
+        const { round, serverNow, sentAt, recvAt } =
+          await fetchMaxBetCrashTick();
+        if (cancelled) return;
+
+        const rtt = recvAt - sentAt;
+        const offset = serverNow - (sentAt + rtt / 2);
+        if (Number.isFinite(offset)) {
+          if (
+            !clockCalibratedRef.current ||
+            rtt <= minRttRef.current * 1.5 ||
+            Math.abs(offset - clockOffsetRef.current) > 2000
+          ) {
+            clockOffsetRef.current = offset;
+            clockCalibratedRef.current = true;
+            minRttRef.current = Math.min(minRttRef.current, rtt);
+          }
+          minRttRef.current += 5;
+        }
+
+        pollFailuresRef.current = 0;
+        liveSyncActiveRef.current = true;
+        const serverNowApprox = Date.now() + clockOffsetRef.current;
+        applyRemoteMaxBetRound(round, serverNowApprox);
+      } catch {
+        pollFailuresRef.current += 1;
+        if (pollFailuresRef.current >= 5) {
+          liveSyncActiveRef.current = false;
+        }
+      } finally {
+        if (!cancelled) {
+          timerId = window.setTimeout(pollOnce, MAXBET_POLL_INTERVAL_MS);
+        }
+      }
+    };
+
+    pollOnce();
+
+    const handleBackground = () => {
+      persistSession();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        persistSession();
+      } else {
+        pollOnce();
+        const now = Date.now();
+        if (!liveSyncActiveRef.current && now - lastSyncEpochRef.current > 2000) {
+          const reconciled = resolveTimelineToNow(
+            {
+              roundNumber: roundNumberRef.current,
+              roundStartedAt: roundStartedAtRef.current,
+              crashPoint: Number.isFinite(crashPointRef.current)
+                ? crashPointRef.current
+                : generateCrashPoint(roundNumberRef.current),
+              balance: balanceRef.current,
+              slots: slotsRef.current,
+              historyRounds: historyRoundsRef.current,
+            },
+            now
+          );
+          applyResolvedState(reconciled);
+          lastSyncEpochRef.current = now;
+        }
+      }
+    };
+
+    window.addEventListener('pagehide', handleBackground);
+    window.addEventListener('beforeunload', handleBackground);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      cancelled = true;
+      if (timerId !== undefined) window.clearTimeout(timerId);
+      window.removeEventListener('pagehide', handleBackground);
+      window.removeEventListener('beforeunload', handleBackground);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [applyRemoteMaxBetRound, applyResolvedState, persistSession]);
+
+  // Firebase RTDB connection (fallback round sync + explicit prediction overrides)
+  useEffect(() => {
+    const maybeAdoptRemoteRound = (
+      remote: FirebaseRoundState,
+      isInitialFetch: boolean
+    ) => {
+      // Never let stale Firebase rounds override active live MaxBet server sync
+      if (liveSyncActiveRef.current) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - remote.roundStartedAt > 15 * 60 * 1000) {
+        return;
+      }
+
+      const isNewerRound = remote.roundNumber > roundNumberRef.current;
+      const isDifferentSameRound =
+        remote.roundNumber === roundNumberRef.current &&
+        Math.abs(remote.roundStartedAt - roundStartedAtRef.current) > 1500 &&
+        (isInitialFetch || remote.updatedAt > lastSyncEpochRef.current);
+
+      if (
+        (!bootRef.current?.hadSavedSession && isInitialFetch) ||
+        isNewerRound ||
+        isDifferentSameRound
+      ) {
+        const reconciled = resolveTimelineToNow(
+          {
+            roundNumber: remote.roundNumber,
+            roundStartedAt: remote.roundStartedAt,
+            crashPoint: remote.crashPoint,
+            balance: balanceRef.current,
+            slots: slotsRef.current,
+            historyRounds: historyRoundsRef.current,
+          },
+          now
+        );
+        applyResolvedState(reconciled);
+        lastSyncEpochRef.current = now;
+        persistSession();
+      }
+    };
+
+    fetchCurrentRoundStateFromFirebase().then((remote) => {
+      if (remote) {
+        maybeAdoptRemoteRound(remote, true);
+      }
+    });
+
+    const unsubRound = subscribeToCurrentRoundFromFirebase((remote) => {
+      maybeAdoptRemoteRound(remote, false);
+    });
+
+    const unsubPredictions = subscribeToFirebasePredictions((signal) => {
+      if (consumedFirebaseTokensRef.current.has(signal.token)) {
+        return;
+      }
+
+      if (
+        phaseRef.current === 'waiting' &&
+        (signal.roundNumber === undefined ||
+          signal.roundNumber === roundNumberRef.current)
+      ) {
+        consumedFirebaseTokensRef.current.add(signal.token);
+        activeFirebaseOverrideRef.current = signal.crashPoint;
+        crashPointRef.current = signal.crashPoint;
+        syncRoundPhaseToFirebase({
+          roundNumber: roundNumberRef.current,
+          phase: 'waiting',
+          crashPoint: signal.crashPoint,
+          roundStartedAt: roundStartedAtRef.current,
+          flightStartedAt: roundStartedAtRef.current + WAITING_DURATION_MS,
+        });
+        persistSession();
+        return;
+      }
+
+      pendingFirebasePredictionRef.current = signal;
+    });
+
+    return () => {
+      unsubRound();
+      unsubPredictions();
+    };
+  }, [applyResolvedState, persistSession]);
+
+
   // Main game phase loop driven by requestAnimationFrame
   useEffect(() => {
     let rafId = 0;
@@ -757,7 +1367,10 @@ export default function App() {
         const remainingMs = Math.max(0, WAITING_DURATION_MS - elapsed);
         const sec = Math.max(
           1,
-          Math.min(6, Math.ceil((remainingMs / WAITING_DURATION_MS) * 6))
+          Math.min(
+            MAXBET_WAITING_SEC,
+            Math.ceil((remainingMs / WAITING_DURATION_MS) * MAXBET_WAITING_SEC)
+          )
         );
         setCountdownSeconds((prev) => (prev !== sec ? sec : prev));
 
@@ -770,8 +1383,11 @@ export default function App() {
               pending.roundNumber === roundNumberRef.current)
           ) {
             consumedFirebaseTokensRef.current.add(pending.token);
+            activeFirebaseOverrideRef.current = pending.crashPoint;
             crashPointRef.current = pending.crashPoint;
             pendingFirebasePredictionRef.current = null;
+          } else if (liveSyncActiveRef.current && activeFirebaseOverrideRef.current === null) {
+            crashPointRef.current = Number.POSITIVE_INFINITY;
           }
 
           phaseStartRef.current = now;
@@ -782,85 +1398,22 @@ export default function App() {
           syncRoundPhaseToFirebase({
             roundNumber: roundNumberRef.current,
             phase: 'flight',
-            crashPoint: crashPointRef.current,
+            crashPoint: Number.isFinite(crashPointRef.current)
+              ? crashPointRef.current
+              : 1,
             roundStartedAt: roundStartedAtRef.current,
             flightStartedAt: Date.now(),
           });
         }
       } else if (currentPhase === 'flight') {
         const sec = Math.max(0, elapsed / 1000);
-        const nextMult = Number(Math.exp(FLIGHT_GROWTH_K * sec).toFixed(2));
+        const nextMult = floorMultiplier(Math.exp(FLIGHT_GROWTH_K * sec));
         const crashTarget = crashPointRef.current;
 
-        if (nextMult >= crashTarget) {
-          // Crash occurred!
-          const crashSec = Math.log(Math.max(1, crashTarget)) / FLIGHT_GROWTH_K;
-          phaseStartRef.current = now;
-          phaseRef.current = 'crashed';
-          setFlightCrashedSec(crashSec);
-          setCrashedMultiplier(crashTarget);
-          setPhase('crashed');
-          syncRoundPhaseToFirebase({
-            roundNumber: roundNumberRef.current,
-            phase: 'crashed',
-            crashPoint: crashTarget,
-            roundStartedAt: roundStartedAtRef.current,
-            flightStartedAt: roundStartedAtRef.current + WAITING_DURATION_MS,
-          });
-          recordCrashHistoryToFirebase({
-            roundNumber: roundNumberRef.current,
-            crashPoint: crashTarget,
-          });
-
-          // Settle simulated players who hadn't cashed out before crashTarget
-          setSimulatedRows((prev) =>
-            prev.map((row) =>
-              row.cashedOutAt !== null
-                ? row
-                : { ...row, status: 'loss', payout: 0 }
-            )
-          );
-
-          // Settle user bets & update history / auto-play rules
-          const currentSlots = slotsRef.current;
-          let roundStake = 0;
-          let roundPayout = 0;
-          let bestCashout: number | null = null;
-          let hadLoss = false;
-
-          currentSlots.forEach((slot) => {
-            if (slot.activeBet) {
-              roundStake += slot.activeBet.stake;
-              if (slot.activeBet.cashedOutAt !== null) {
-                roundPayout += slot.activeBet.payout;
-                bestCashout =
-                  bestCashout === null
-                    ? slot.activeBet.cashedOutAt
-                    : Math.max(bestCashout, slot.activeBet.cashedOutAt);
-              } else {
-                hadLoss = true;
-              }
-            }
-          });
-
-          if (roundStake > 0) {
-            const newHistory: HistoryRound = {
-              id: `r-${roundNumberRef.current}-${Date.now()}`,
-              roundNumber: roundNumberRef.current,
-              crashPoint: crashTarget,
-              stake: Number(roundStake.toFixed(2)),
-              cashoutAt: bestCashout,
-              payout: Number(roundPayout.toFixed(2)),
-              timestamp: 'الآن',
-            };
-            setHistoryRounds((prev) => [newHistory, ...prev.slice(0, 29)]);
-
-            if (hadLoss && roundPayout === 0) {
-              showBanner('loss', `خسرت ${roundStake.toFixed(2)} ج.م`);
-            }
-          }
+        if (Number.isFinite(crashTarget) && nextMult >= crashTarget) {
+          // Crash occurred (either offline fallback or explicit Firebase override)!
+          triggerCrashState(crashTarget, roundNumberRef.current, false);
         } else {
-
           // Settle simulated players hitting targetCashout
           setSimulatedRows((prev) => {
             let changed = false;
@@ -892,85 +1445,19 @@ export default function App() {
           });
         }
       } else if (currentPhase === 'crashed') {
-        if (elapsed >= CRASH_PAUSE_MS) {
-          // Prepare next round
-          const nextRound = roundNumberRef.current + 1;
+        // When live MaxBet sync is active, wait for crash_tick to open the next official round;
+        // only advance locally when offline fallback is active.
+        if (!liveSyncActiveRef.current && elapsed >= CRASH_PAUSE_MS) {
+          const prevRound = roundNumberRef.current;
+          const nextRound = prevRound + 1;
           roundNumberRef.current = nextRound;
           setRoundNumber(nextRound);
 
-          const sim = generateSimulatedBets(nextRound);
-          setSimulatedRows(sim.rows);
-          setBaseStats({ count: sim.totalBetsCount, pool: sim.baseTotalPool });
-
-          // Promote queued bets & handle auto-play for next round
-          let deductedTotal = 0;
-          const prevSlots = slotsRef.current;
-          const updatedSlots: [BetSlotState, BetSlotState] = [
-            prevSlots[0],
-            prevSlots[1],
-          ];
-
-          for (const idx of [0, 1] as const) {
-            const s = prevSlots[idx];
-            const wonPrev =
-              s.activeBet !== null && s.activeBet.cashedOutAt !== null;
-            const lostPrev =
-              s.activeBet !== null && s.activeBet.cashedOutAt === null;
-
-            let nextAuto = { ...s.autoConfig };
-            if (nextAuto.enabled && s.activeBet !== null) {
-              if (wonPrev && nextAuto.onWin === 'stop') {
-                nextAuto.enabled = false;
-              } else if (lostPrev && nextAuto.onLoss === 'stop') {
-                nextAuto.enabled = false;
-              } else if (nextAuto.roundsRemaining !== null) {
-                const left = nextAuto.roundsRemaining - 1;
-                if (left <= 0) {
-                  nextAuto.enabled = false;
-                  nextAuto.roundsRemaining = null;
-                } else {
-                  nextAuto.roundsRemaining = left;
-                }
-              }
-            }
-
-            let nextActiveBet: BetSlotState['activeBet'] = null;
-            if (s.queuedBet !== null) {
-              nextActiveBet = {
-                stake: s.queuedBet,
-                cashedOutAt: null,
-                payout: 0,
-              };
-            } else if (nextAuto.enabled) {
-              const available = balanceRef.current - deductedTotal;
-              if (available >= nextAuto.baseStake) {
-                deductedTotal += nextAuto.baseStake;
-                nextActiveBet = {
-                  stake: nextAuto.baseStake,
-                  cashedOutAt: null,
-                  payout: 0,
-                };
-              } else {
-                nextAuto.enabled = false;
-                showNotice('error', 'الرصيد غير كافٍ لإكمال التشغيل التلقائي');
-              }
-            }
-
-            updatedSlots[idx] = {
-              ...s,
-              activeBet: nextActiveBet,
-              queuedBet: null,
-              autoConfig: nextAuto,
-            };
-          }
-
-          if (deductedTotal > 0) {
-            setBalance((b) => Number(Math.max(0, b - deductedTotal).toFixed(2)));
-          }
-          setSlots(updatedSlots);
+          promoteSlotsForNextRound(nextRound, prevRound);
 
           const newRoundStartEpoch = Date.now();
           roundStartedAtRef.current = newRoundStartEpoch;
+          activeFirebaseOverrideRef.current = null;
           crashPointRef.current = resolveRoundCrashPoint(nextRound);
           syncRoundPhaseToFirebase({
             roundNumber: nextRound,
@@ -982,8 +1469,9 @@ export default function App() {
 
           phaseStartRef.current = now;
           phaseRef.current = 'waiting';
+          setWaitStartTime(now);
           setPhase('waiting');
-          setCountdownSeconds(6);
+          setCountdownSeconds(MAXBET_WAITING_SEC);
           setCrashedMultiplier(1.0);
           setFlightCrashedSec(0);
           setIsRoundTransition(true);
@@ -996,7 +1484,12 @@ export default function App() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [resolveRoundCrashPoint, settleCashout, showBanner, showNotice]);
+  }, [
+    promoteSlotsForNextRound,
+    resolveRoundCrashPoint,
+    settleCashout,
+    triggerCrashState,
+  ]);
 
   const handleChangeInput = (slotId: 0 | 1, value: string) => {
     const sanitized = value.replace(/[^0-9.]/g, '');
@@ -1037,7 +1530,7 @@ export default function App() {
         0,
         (performance.now() - phaseStartRef.current) / 1000
       );
-      const liveMult = Number(Math.exp(FLIGHT_GROWTH_K * elapsedSec).toFixed(2));
+      const liveMult = floorMultiplier(Math.exp(FLIGHT_GROWTH_K * elapsedSec));
       if (liveMult < crashPointRef.current) {
         settleCashout(slotId, Math.max(1.0, liveMult));
       }
@@ -1195,7 +1688,7 @@ export default function App() {
     activeSheet?.type === 'auto' ? slots[activeSheet.slotId] : undefined;
 
   return (
-    <div id="top">
+    <div id="top" className="flex min-h-dvh w-full flex-col">
       <Header
         balance={balance}
         unreadCount={unreadCount}
@@ -1236,7 +1729,9 @@ export default function App() {
               <CrashScene
                 phase={phase}
                 countdownSeconds={countdownSeconds}
+                waitStartTime={waitStartTime}
                 flightStartTime={flightStartTime}
+                crashStartTime={crashStartTime}
                 crashedMultiplier={crashedMultiplier}
                 flightCrashedSec={flightCrashedSec}
                 flightGrowthK={FLIGHT_GROWTH_K}

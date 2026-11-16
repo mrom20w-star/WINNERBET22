@@ -69,15 +69,29 @@ export const INITIAL_HISTORY_ROUNDS: HistoryRound[] = [
   },
 ];
 
-export function generateCrashPoint(): number {
-  const r = Math.random();
-  // ~4% chance instant crash at 1.00x - 1.04x
-  if (r < 0.04) {
-    return Number((1 + Math.random() * 0.04).toFixed(2));
+function seededUnitRandom(seed: number): number {
+  let t = (seed + 0x6d2b79f5) | 0;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+export function generateCrashPoint(roundSeed?: number): number {
+  const r =
+    roundSeed !== undefined
+      ? seededUnitRandom(roundSeed * 2654435761)
+      : Math.random();
+  // Standard ~3% instant bust (1.00x - 1.02x) with 97% RTP heavy-tailed Crash curve
+  if (r < 0.03) {
+    const sub =
+      roundSeed !== undefined
+        ? seededUnitRandom(roundSeed * 1597334677 + 17)
+        : Math.random();
+    return Number((1 + sub * 0.02).toFixed(2));
   }
-  // Classic heavy-tailed Crash distribution clamped sensibly for interactive fun
-  const raw = 0.96 / (1 - r);
-  const clamped = Math.min(Math.max(raw, 1.05), 35);
+  const safeR = Math.min(r, 0.9999);
+  const raw = 0.97 / (1 - safeR);
+  const clamped = Math.min(Math.max(raw, 1.01), 100);
   return Number(clamped.toFixed(2));
 }
 

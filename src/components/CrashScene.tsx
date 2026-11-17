@@ -62,8 +62,8 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
   }
 
   const t = Math.max(0, elapsedSec);
-  const dx = 699.2 * (1 - Math.exp(-t / 4.0));
-  const dy = 198 * (1 - Math.exp(-t / 3.4));
+  const dx = 699.2 * (1 - Math.exp(-t / 2.2));
+  const dy = 198 * (1 - Math.exp(-t / 1.9));
 
   const tipX = START_X + dx;
   const tipY = BASELINE_Y - dy;
@@ -73,7 +73,7 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
   const c2y = BASELINE_Y - dy * 0.42;
 
   // Monotonically easing upward pitch (never dips down mid-flight)
-  const angleDeg = -5.6 * (1 - Math.exp(-t / 0.75));
+  const angleDeg = -6.0 * (1 - Math.exp(-t / 0.5));
 
   return {
     pathD: `M ${START_X} ${BASELINE_Y} C ${c1x} ${c1y} ${c2x} ${c2y} ${tipX} ${tipY}`,

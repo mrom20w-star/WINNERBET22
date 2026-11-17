@@ -192,7 +192,7 @@ input, textarea, [contenteditable=true] {
 
 .c1x .game-content {
   background: var(--game-bg);
-  grid-template-rows: 11cqw 35.6cqw auto auto auto;
+  grid-template-rows: 9.8cqw 34.4cqw auto auto auto;
   min-height: 100%;
   display: grid;
 }
@@ -201,13 +201,13 @@ input, textarea, [contenteditable=true] {
   grid-template-columns: 1.06fr 1fr;
   align-items: center;
   gap: 2%;
-  padding: 2% 2.7% 1.4%;
+  padding: 1.6% 2.7% 1.1%;
   display: grid;
 }
 
 .c1x .game-tabs button {
   border-radius: 6px;
-  height: 7.2cqw;
+  height: 6.6cqw;
   font-size: clamp(11px, 3.2cqw, 20px);
 }
 
@@ -252,7 +252,7 @@ input, textarea, [contenteditable=true] {
   pointer-events: none;
   will-change: transform;
   height: 87.7%;
-  animation: 14s linear infinite mountain-scroll;
+  animation: 9.5s linear infinite mountain-scroll;
   display: flex;
   position: absolute;
   top: -4.1%;
@@ -301,7 +301,7 @@ input, textarea, [contenteditable=true] {
   content: "";
   background-image: radial-gradient(circle, var(--axis-dot) 0 2.15px, transparent 2.4px);
   will-change: transform;
-  animation-duration: 1.15s;
+  animation-duration: .85s;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
   position: absolute;
@@ -476,8 +476,8 @@ input, textarea, [contenteditable=true] {
 .c1x .bet-stack {
   background: var(--game-bg);
   grid-template-rows: auto auto;
-  gap: 1.7cqw;
-  padding: 2.8cqw 1.1cqw;
+  gap: 1.35cqw;
+  padding: 1.5cqw 1.1cqw;
   display: grid;
   position: relative;
 }
@@ -521,17 +521,17 @@ input, textarea, [contenteditable=true] {
   border-radius: 5px;
   grid-template-columns: 1fr 36.5cqw;
   grid-template-areas: "controls actions";
-  gap: 1.7cqw;
-  height: 29.6cqw;
+  gap: 1.4cqw;
+  height: 25.8cqw;
   min-height: 0;
-  padding: 2.7cqw;
+  padding: 2.1cqw;
   display: grid;
 }
 
 .c1x .bet-controls {
   grid-area: controls;
-  grid-template-rows: 7.9cqw 1fr;
-  gap: 1.9cqw;
+  grid-template-rows: 7.0cqw 1fr;
+  gap: 1.4cqw;
   min-width: 0;
   display: grid;
 }
@@ -571,7 +571,7 @@ input, textarea, [contenteditable=true] {
 .c1x .amount-grid {
   grid-template-rows: repeat(2, 1fr);
   grid-template-columns: repeat(3, 1fr);
-  gap: 1.7cqw;
+  gap: 1.3cqw;
   display: grid;
 }
 
@@ -602,8 +602,8 @@ input, textarea, [contenteditable=true] {
 
 .c1x .bet-actions {
   grid-area: actions;
-  grid-template-rows: 8.2cqw 1fr;
-  gap: 1.7cqw;
+  grid-template-rows: 7.2cqw 1fr;
+  gap: 1.4cqw;
   min-width: 0;
   display: grid;
 }
@@ -671,7 +671,7 @@ input, textarea, [contenteditable=true] {
   background: linear-gradient(90deg, var(--red), var(--primary-deep));
   direction: rtl;
   grid-template-columns: repeat(3, 1fr);
-  min-height: 12.6cqw;
+  min-height: 11.4cqw;
   display: grid;
 }
 
@@ -681,7 +681,7 @@ input, textarea, [contenteditable=true] {
   justify-content: center;
   align-items: center;
   min-width: 0;
-  padding: 1.5cqw 1cqw;
+  padding: 1.2cqw 1cqw;
   font-size: clamp(10px, 2.7cqw, 16px);
   font-weight: 400;
   display: flex;
@@ -726,7 +726,7 @@ input, textarea, [contenteditable=true] {
 }
 
 .c1x .list-head {
-  height: 12cqw;
+  height: 10.5cqw;
   color: var(--muted-foreground);
   font-size: clamp(10px, 3cqw, 18px);
 }
@@ -1291,7 +1291,7 @@ input, textarea, [contenteditable=true] {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto;
     gap: 12px;
-    padding: 14px 16px;
+    padding: 10px 16px;
   }
 
   .c1x .bet-notice {
@@ -1302,8 +1302,8 @@ input, textarea, [contenteditable=true] {
   .c1x .bet-panel {
     grid-template-columns: 1fr clamp(160px, 18vw, 220px);
     gap: 12px;
-    height: 170px;
-    padding: 14px;
+    height: 156px;
+    padding: 12px;
     border-radius: 7px;
   }
 

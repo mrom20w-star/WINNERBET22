@@ -65,18 +65,18 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
   }
 
   const t = Math.max(0, elapsedSec);
-  const dx = 699.2 * (1 - Math.exp(-t / 2.6));
-  const dy = 198 * (1 - Math.exp(-t / 2.3));
+  const dx = 699.2 * (1 - Math.exp(-t / 3.05));
+  const dy = 202 * Math.pow(1 - Math.exp(-t / 2.55), 1.18);
 
   const tipX = START_X + dx;
   const tipY = BASELINE_Y - dy;
-  const c1x = START_X + dx * 0.5;
+  const c1x = START_X + dx * 0.48;
   const c1y = BASELINE_Y;
   const c2x = START_X + dx * 0.78;
-  const c2y = BASELINE_Y - dy * 0.42;
+  const c2y = BASELINE_Y - dy * 0.36;
 
   // Monotonically easing upward pitch (never dips down mid-flight)
-  const angleDeg = -6.0 * (1 - Math.exp(-t / 0.45));
+  const angleDeg = -7.5 * (1 - Math.exp(-t / 0.55));
 
   return {
     pathD: `M ${START_X} ${BASELINE_Y} C ${c1x} ${c1y} ${c2x} ${c2y} ${tipX} ${tipY}`,
@@ -263,7 +263,7 @@ export function CrashScene({
         if (w > 0 && h > 0) {
           const pxX = (geom.tipX / 1000) * w;
           const pxY = (geom.tipY / 356) * h;
-          planeRef.current.style.transform = `translate3d(${pxX.toFixed(2)}px, ${pxY.toFixed(2)}px, 0) translate(-8%, -88%) rotate(${geom.angleDeg.toFixed(3)}deg)`;
+          planeRef.current.style.transform = `translate3d(${pxX.toFixed(2)}px, ${pxY.toFixed(2)}px, 0) translate(-14%, -80%) rotate(${geom.angleDeg.toFixed(3)}deg)`;
         }
       }
       if (flightMultRef.current) {

@@ -1129,8 +1129,18 @@ export default function App() {
     };
 
     fetchCurrentRoundStateFromFirebase().then((remote) => {
-      if (remote) {
+      if (remote && Date.now() - remote.roundStartedAt <= 15 * 60 * 1000) {
         maybeAdoptRemoteRound(remote, true);
+      } else if (!isFirebaseClosedRef.current) {
+        syncRoundPhaseToFirebase({
+          roundNumber: roundNumberRef.current,
+          phase: phaseRef.current,
+          crashPoint: Number.isFinite(crashPointRef.current)
+            ? crashPointRef.current
+            : 1,
+          roundStartedAt: roundStartedAtRef.current,
+          flightStartedAt: roundStartedAtRef.current + WAITING_DURATION_MS,
+        });
       }
     });
 
@@ -1145,6 +1155,12 @@ export default function App() {
       (signal) => {
         if (isFirebaseClosedRef.current) return;
         if (consumedFirebaseTokensRef.current.has(signal.token)) {
+          return;
+        }
+        if (
+          signal.roundNumber !== undefined &&
+          signal.roundNumber < roundNumberRef.current
+        ) {
           return;
         }
         const cappedSignalPoint = Number(

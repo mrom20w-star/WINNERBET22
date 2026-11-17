@@ -13,30 +13,29 @@ export function Header({
   onOpenNotifications,
   onBack,
 }: HeaderProps) {
-  const formattedBalance = Number.isInteger(balance)
-    ? balance.toString()
-    : balance.toFixed(2);
+  void unreadCount;
+  const formattedBalance = balance.toFixed(2);
 
   return (
     <div
-      className="sticky top-0 z-40 w-full bg-[#212328] border-b border-white/[0.07] shadow-[0_2px_8px_rgba(0,0,0,0.32)]"
+      className="sticky top-0 z-40 w-full bg-white border-b border-[#e5e8ef]"
       dir="rtl"
     >
-      <header className="flex h-[52px] w-full items-center justify-between px-3.5 md:h-[56px] md:px-6">
+      <header className="flex h-[46px] w-full items-center justify-between px-3 md:h-[52px] md:px-6">
         {/* Right side (RTL start): back arrow */}
         <button
           type="button"
           aria-label="رجوع"
           onClick={onBack}
-          className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#b3b7bf] transition-colors hover:bg-white/5 hover:text-white active:opacity-60"
+          className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#6e7782] transition-colors hover:bg-black/5 hover:text-[#424a54] active:opacity-60"
         >
           <svg
-            width="23"
-            height="23"
+            width="20"
+            height="20"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2.1"
+            strokeWidth="1.9"
             strokeLinecap="round"
             strokeLinejoin="round"
             aria-hidden="true"
@@ -46,22 +45,22 @@ export function Header({
           </svg>
         </button>
 
-        {/* Center: gray wallet capsule (#9E9E9E outer + #4D4D4D inner balance pill) + uploaded orange + image */}
+        {/* Center: compact gray wallet capsule (#9E9E9E outer + #555555 inner) + smaller orange + image */}
         <button
           type="button"
           aria-label="إيداع"
           onClick={onOpenDeposit}
-          className="inline-flex max-w-[74vw] cursor-pointer items-center gap-[6px] rounded-full bg-[#9E9E9E] px-[5px] py-[4px] ring-1 ring-[#848484] shadow-[0_1px_4px_rgba(0,0,0,0.3)] transition-transform active:scale-[0.98]"
+          className="inline-flex max-w-[70vw] cursor-pointer items-center gap-[4px] rounded-full bg-[#9E9E9E] px-[3.5px] py-[3px] transition-transform active:scale-[0.98]"
         >
           <span
             dir="ltr"
-            className="flex h-[28px] min-w-[96px] items-center justify-center rounded-full bg-[#4D4D4D] px-3.5 text-[14px] font-semibold leading-none tracking-[0.01em] text-white tabular-nums whitespace-nowrap"
+            className="flex h-[22px] min-w-[78px] items-center justify-center rounded-full bg-[#555555] px-2.5 text-[11.5px] font-medium leading-none tracking-[0.01em] text-white tabular-nums whitespace-nowrap"
           >
             {formattedBalance} ج.م
           </span>
 
           <span
-            className="relative flex h-[28px] w-[36px] shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-[#da3e01]"
+            className="relative flex h-[22px] w-[28px] shrink-0 items-center justify-center overflow-hidden rounded-[8px] bg-[#da3e01]"
             aria-hidden="true"
           >
             <img
@@ -78,11 +77,11 @@ export function Header({
           type="button"
           aria-label="المكافآت والإشعارات"
           onClick={onOpenNotifications}
-          className="relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#b3b7bf] transition-colors hover:bg-white/5 hover:text-white active:opacity-60"
+          className="relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#6e7782] transition-colors hover:bg-black/5 hover:text-[#424a54] active:opacity-60"
         >
           <svg
-            width="30"
-            height="30"
+            width="26"
+            height="26"
             viewBox="0 0 34 34"
             fill="none"
             aria-hidden="true"
@@ -92,7 +91,7 @@ export function Header({
               stroke="currentColor"
               strokeWidth="1.25"
               strokeLinejoin="round"
-              fill="#212328"
+              fill="#ffffff"
             />
             <text
               x="17"
@@ -111,19 +110,16 @@ export function Header({
               cy="25.6"
               r="4.7"
               fill="currentColor"
-              stroke="#212328"
+              stroke="#ffffff"
               strokeWidth="1.3"
             />
             <path
               d="M25.6 23.4v4.4M23.4 25.6h4.4"
-              stroke="#212328"
+              stroke="#ffffff"
               strokeWidth="1.6"
               strokeLinecap="round"
             />
           </svg>
-          {unreadCount > 0 && (
-            <span className="absolute end-1.5 top-1.5 h-2 w-2 rounded-full bg-[#ff6a00] ring-2 ring-[#212328]" />
-          )}
         </button>
       </header>
     </div>

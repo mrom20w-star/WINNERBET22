@@ -252,7 +252,7 @@ input, textarea, [contenteditable=true] {
   pointer-events: none;
   will-change: transform;
   height: 87.7%;
-  animation: 20s linear infinite mountain-scroll;
+  animation: 14s linear infinite mountain-scroll;
   display: flex;
   position: absolute;
   top: -4.1%;
@@ -301,7 +301,7 @@ input, textarea, [contenteditable=true] {
   content: "";
   background-image: radial-gradient(circle, var(--axis-dot) 0 2.15px, transparent 2.4px);
   will-change: transform;
-  animation-duration: 1.6s;
+  animation-duration: 1.15s;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
   position: absolute;

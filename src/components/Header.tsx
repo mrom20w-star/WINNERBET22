@@ -1,5 +1,3 @@
-import { Bell, ChevronLeft, Plus, Wallet } from 'lucide-react';
-
 interface HeaderProps {
   balance: number;
   unreadCount: number;
@@ -20,79 +18,113 @@ export function Header({
     : balance.toFixed(2);
 
   return (
-    <div className="sticky top-0 z-40" dir="rtl">
-      <header className="border-b border-primary/25 bg-header text-header-foreground shadow-sm backdrop-blur-xl">
-        <div className="flex h-14 w-full items-center gap-2 px-3 md:h-16 md:px-5">
-          <a
+    <div
+      className="sticky top-0 z-40 w-full bg-[#212328] border-b border-white/[0.07] shadow-[0_2px_8px_rgba(0,0,0,0.32)]"
+      dir="rtl"
+    >
+      <header className="flex h-[52px] w-full items-center justify-between px-3.5 md:h-[56px] md:px-6">
+        {/* Right side (RTL start): back arrow */}
+        <button
+          type="button"
+          aria-label="رجوع"
+          onClick={onBack}
+          className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#b3b7bf] transition-colors hover:bg-white/5 hover:text-white active:opacity-60"
+        >
+          <svg
+            width="23"
+            height="23"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <polyline points="13 5 20 12 13 19" />
+          </svg>
+        </button>
+
+        {/* Center: gray wallet capsule (#9E9E9E outer + #4D4D4D inner balance pill) + uploaded orange + image */}
+        <button
+          type="button"
+          aria-label="إيداع"
+          onClick={onOpenDeposit}
+          className="inline-flex max-w-[74vw] cursor-pointer items-center gap-[6px] rounded-full bg-[#9E9E9E] px-[5px] py-[4px] ring-1 ring-[#848484] shadow-[0_1px_4px_rgba(0,0,0,0.3)] transition-transform active:scale-[0.98]"
+        >
+          <span
             dir="ltr"
-            className="display flex items-center gap-1.5 text-base font-extrabold"
-            href="#top"
-            onClick={(e) => {
-              e.preventDefault();
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
+            className="flex h-[28px] min-w-[96px] items-center justify-center rounded-full bg-[#4D4D4D] px-3.5 text-[14px] font-semibold leading-none tracking-[0.01em] text-white tabular-nums whitespace-nowrap"
           >
-            <span
-              className="relative inline-flex shrink-0 items-center justify-center h-9 w-9"
-              aria-label="MaxBet"
+            {formattedBalance} ج.م
+          </span>
+
+          <span
+            className="relative flex h-[28px] w-[36px] shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-[#da3e01]"
+            aria-hidden="true"
+          >
+            <img
+              src="/assets/aistudio/photo_2026-11-17_15-46-55_38f0c1a1.jpg"
+              alt=""
+              draggable={false}
+              className="h-full w-full scale-[1.18] object-cover select-none"
+            />
+          </span>
+        </button>
+
+        {/* Left side (RTL end): BONUS + rosette seal */}
+        <button
+          type="button"
+          aria-label="المكافآت والإشعارات"
+          onClick={onOpenNotifications}
+          className="relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#b3b7bf] transition-colors hover:bg-white/5 hover:text-white active:opacity-60"
+        >
+          <svg
+            width="30"
+            height="30"
+            viewBox="0 0 34 34"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M17 2.8l1.9 1.7 2.5-.8 1.2 2.3 2.6.2.3 2.6 2.4 1.1-.6 2.5 1.8 1.9-1.4 2.2 1 2.4-2.1 1.5.1 2.6-2.5.7-.7 2.5-2.6-.2-1.6 2-2.3-1-2.2 1.3-1.8-1.9-2.5.4-1-2.4-2.5-.4-.1-2.6-2.2-1.3.8-2.5-1.5-2 1.7-2-.7-2.5 2.3-1.2.2-2.6 2.6-.3 1.1-2.4 2.5.6L17 2.8z"
+              stroke="currentColor"
+              strokeWidth="1.25"
+              strokeLinejoin="round"
+              fill="#212328"
+            />
+            <text
+              x="17"
+              y="18.8"
+              textAnchor="middle"
+              fill="currentColor"
+              fontSize="5.2"
+              fontWeight="800"
+              fontFamily="Roboto, Arial, sans-serif"
+              letterSpacing="0.25"
             >
-              <img
-                alt="MaxBet"
-                draggable={false}
-                className="h-full w-full object-contain"
-                src="/assets/aistudio/maxbet-logo_9275602c.png"
-              />
-            </span>
-            <span className="text-header-foreground">MaxBet</span>
-          </a>
-
-          <div className="me-auto" />
-
-          <button
-            type="button"
-            aria-label="إيداع"
-            onClick={onOpenDeposit}
-            className="group flex min-w-0 max-w-[58vw] cursor-pointer items-center gap-2 overflow-hidden rounded-2xl bg-card ps-3 pe-1 py-1 ring-1 ring-border shadow-md sm:max-w-none"
-          >
-            <div className="flex min-w-0 flex-col items-end leading-tight">
-              <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground">
-                الرصيد
-                <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gold text-[10px] font-extrabold text-stone-950">
-                  <Plus className="h-2.5 w-2.5" strokeWidth={4} aria-hidden="true" />
-                </span>
-              </span>
-              <span className="text-sm font-extrabold tabular-nums text-foreground whitespace-nowrap">
-                {formattedBalance} ج.م
-              </span>
-            </div>
-            <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-foreground text-primary-foreground transition-transform group-hover:scale-105">
-              <Wallet className="h-4 w-4" aria-hidden="true" />
-            </span>
-          </button>
-
-          <button
-            type="button"
-            aria-label="الإشعارات"
-            onClick={onOpenNotifications}
-            className="relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-primary/15 text-header-foreground ring-1 ring-primary/25 hover:bg-primary/25"
-          >
-            <Bell className="h-4 w-4" aria-hidden="true" />
-            {unreadCount > 0 && (
-              <span className="absolute -end-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-extrabold text-white">
-                {unreadCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            aria-label="رجوع"
-            onClick={onBack}
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl bg-primary/15 text-header-foreground ring-1 ring-primary/25 transition-colors hover:bg-primary/25 hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-          </button>
-        </div>
+              BONUS
+            </text>
+            <circle
+              cx="25.6"
+              cy="25.6"
+              r="4.7"
+              fill="currentColor"
+              stroke="#212328"
+              strokeWidth="1.3"
+            />
+            <path
+              d="M25.6 23.4v4.4M23.4 25.6h4.4"
+              stroke="#212328"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+          </svg>
+          {unreadCount > 0 && (
+            <span className="absolute end-1.5 top-1.5 h-2 w-2 rounded-full bg-[#ff6a00] ring-2 ring-[#212328]" />
+          )}
+        </button>
       </header>
     </div>
   );

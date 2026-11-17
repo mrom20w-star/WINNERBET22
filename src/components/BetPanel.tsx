@@ -5,6 +5,7 @@ import { BetSlotState, GamePhase } from '../types/crash';
 interface BetPanelProps {
   slot: BetSlotState;
   phase: GamePhase;
+  isCashoutPending?: boolean;
   onChangeInput: (slotId: 0 | 1, value: string) => void;
   onPickPreset: (slotId: 0 | 1, amount: number) => void;
   onClearInput: (slotId: 0 | 1) => void;
@@ -15,6 +16,7 @@ interface BetPanelProps {
 export function BetPanel({
   slot,
   phase,
+  isCashoutPending = false,
   onChangeInput,
   onPickPreset,
   onClearInput,
@@ -22,6 +24,7 @@ export function BetPanel({
   onOpenAuto,
 }: BetPanelProps) {
   const [pressedKey, setPressedKey] = useState<string | null>(null);
+  const [pickedPreset, setPickedPreset] = useState<number | null>(null);
 
   const triggerPress = (key: string) => {
     setPressedKey(key);
@@ -30,7 +33,13 @@ export function BetPanel({
     }, 160);
   };
 
-  const parsedStake = Number.parseFloat(slot.inputValue);
+  const flashPreset = (amount: number) => {
+    setPickedPreset(amount);
+    window.setTimeout(() => {
+      setPickedPreset((curr) => (curr === amount ? null : curr));
+    }, 150);
+  };
+
   const isWaiting = phase === 'waiting';
   const isFlight = phase === 'flight';
   const isCrashed = phase === 'crashed';
@@ -46,9 +55,12 @@ export function BetPanel({
     (isFlight && slot.activeBet !== null && slot.activeBet.cashedOutAt !== null);
 
   let primaryLabel = 'وضع الرهان';
-  let isPendingStyle = false;
+  let isPendingStyle = isCashoutPending;
 
-  if (hasUnsettledFlightBet && slot.activeBet) {
+  if (isCashoutPending) {
+    primaryLabel = 'جاري السحب';
+    isPendingStyle = true;
+  } else if (hasUnsettledFlightBet && slot.activeBet) {
     primaryLabel = 'سحب';
   } else if (hasWaitingBet) {
     primaryLabel = 'إلغاء';
@@ -73,13 +85,23 @@ export function BetPanel({
             inputMode="decimal"
             aria-label="قيمة الرهان"
             value={slot.inputValue}
-            disabled={hasWaitingBet || hasUnsettledFlightBet || hasQueuedNext}
+            disabled={
+              isCashoutPending ||
+              hasWaitingBet ||
+              hasUnsettledFlightBet ||
+              hasQueuedNext
+            }
             onChange={(e) => onChangeInput(slot.id, e.target.value)}
           />
           <button
             type="button"
             aria-label="مسح القيمة"
-            disabled={hasWaitingBet || hasUnsettledFlightBet || hasQueuedNext}
+            disabled={
+              isCashoutPending ||
+              hasWaitingBet ||
+              hasUnsettledFlightBet ||
+              hasQueuedNext
+            }
             onClick={() => onClearInput(slot.id)}
           >
             ×
@@ -87,21 +109,25 @@ export function BetPanel({
         </label>
 
         <div className="amount-grid">
-          {PRESET_STAKES.map((amount) => {
-            const isPicked =
-              !Number.isNaN(parsedStake) && Math.abs(parsedStake - amount) < 0.001;
-            return (
-              <button
-                key={amount}
-                type="button"
-                disabled={hasWaitingBet || hasUnsettledFlightBet || hasQueuedNext}
-                className={isPicked ? 'is-picked' : ''}
-                onClick={() => onPickPreset(slot.id, amount)}
-              >
-                {amount}
-              </button>
-            );
-          })}
+          {PRESET_STAKES.map((amount) => (
+            <button
+              key={amount}
+              type="button"
+              disabled={
+                isCashoutPending ||
+                hasWaitingBet ||
+                hasUnsettledFlightBet ||
+                hasQueuedNext
+              }
+              className={pickedPreset === amount ? 'is-picked' : ''}
+              onClick={() => {
+                flashPreset(amount);
+                onPickPreset(slot.id, amount);
+              }}
+            >
+              {amount}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -126,13 +152,20 @@ export function BetPanel({
           className={`place-button ${isPendingStyle ? 'is-pending' : ''} ${
             pressedKey === 'place' ? 'is-pressed' : ''
           }`}
-          aria-busy={hasQueuedNext ? 'true' : 'false'}
+          aria-busy={isCashoutPending || hasQueuedNext ? 'true' : 'false'}
+          disabled={isCashoutPending}
           onClick={() => {
             triggerPress('place');
             onAction(slot.id);
           }}
         >
-          {hasQueuedNext ? (
+          {isCashoutPending ? (
+            <span className="bet-dots" aria-label="جاري السحب">
+              <i />
+              <i />
+              <i />
+            </span>
+          ) : hasQueuedNext ? (
             <span className="place-button-lines">
               <span>{primaryLabel}</span>
               <span className="bet-dots" aria-hidden="true">

@@ -34,16 +34,34 @@ export const MAXBET_WAITING_MS = MAXBET_WAITING_SEC * 1000;
 export const MAXBET_GROWTH_K = 0.06;
 export const MAXBET_POLL_INTERVAL_MS = 400;
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = 2500
+): Promise<Response> {
+  const controller = new AbortController();
+  const timerId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timerId);
+  }
+}
+
 export async function fetchMaxBetCrashTick(): Promise<MaxBetTickResult> {
   const sentAt = Date.now();
-  const res = await fetch(`${MAXBET_SUPABASE_URL}/rest/v1/rpc/crash_tick`, {
-    method: 'POST',
-    headers: {
-      apikey: MAXBET_SUPABASE_ANON_KEY,
-      'Content-Type': 'application/json',
+  const res = await fetchWithTimeout(
+    `${MAXBET_SUPABASE_URL}/rest/v1/rpc/crash_tick`,
+    {
+      method: 'POST',
+      headers: {
+        apikey: MAXBET_SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
     },
-    body: '{}',
-  });
+    2500
+  );
   const recvAt = Date.now();
 
   if (!res.ok) {
@@ -72,7 +90,7 @@ export async function fetchMaxBetRoundById(
   roundId: number
 ): Promise<MaxBetHistoryRound | null> {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${MAXBET_SUPABASE_URL}/rest/v1/crash_rounds?select=id,crash_point,started_at,crashed_at&id=eq.${Math.round(
         roundId
       )}&status=eq.crashed&limit=1`,
@@ -80,7 +98,8 @@ export async function fetchMaxBetRoundById(
         headers: {
           apikey: MAXBET_SUPABASE_ANON_KEY,
         },
-      }
+      },
+      2500
     );
     if (!res.ok) return null;
     const rows = (await res.json()) as Array<{

@@ -192,23 +192,23 @@ input, textarea, [contenteditable=true] {
 
 .c1x .game-content {
   background: var(--game-bg);
-  grid-template-rows: 10.4cqw 35.6cqw auto auto auto;
+  grid-template-rows: 11cqw 35.6cqw auto auto auto;
   min-height: 100%;
   display: grid;
 }
 
 .c1x .game-tabs {
-  grid-template-columns: 1.18fr 1fr;
+  grid-template-columns: 1.06fr 1fr;
   align-items: center;
-  gap: 1.4%;
-  padding: 2.25% 2.7% 1.25%;
+  gap: 2%;
+  padding: 2% 2.7% 1.4%;
   display: grid;
 }
 
 .c1x .game-tabs button {
   border-radius: 6px;
-  height: 6.3cqw;
-  font-size: clamp(11px, 3.15cqw, 20px);
+  height: 7.2cqw;
+  font-size: clamp(11px, 3.2cqw, 20px);
 }
 
 .c1x .terms-tab {
@@ -766,19 +766,20 @@ input, textarea, [contenteditable=true] {
   white-space: nowrap;
   pointer-events: none;
   direction: rtl;
-  background: oklch(20% .03 275 / .45);
+  background: oklch(20% .03 275 / .55);
   border: .5px solid oklch(100% 0 0 / .35);
   border-radius: 1cqw;
   place-items: center;
-  width: 51%;
+  width: 58%;
   height: 18%;
-  font-size: clamp(12px, 3.6cqw, 22px);
+  padding: 0 2%;
+  font-size: clamp(12px, 3.4cqw, 21px);
   font-weight: 500;
   animation: 2.4s ease-out both result-inout;
   display: grid;
   position: absolute;
   top: 38%;
-  left: 7.5%;
+  left: 6%;
 }
 
 .c1x .scene-result.is-win {
@@ -960,7 +961,7 @@ input, textarea, [contenteditable=true] {
 }
 
 .is-history {
-  max-height: 320px !important;
+  max-height: 300px !important;
 }
 
 .is-history .c1x-sheet-title {

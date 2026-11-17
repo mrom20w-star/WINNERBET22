@@ -62,8 +62,7 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
 
   const t = Math.max(0, elapsedSec);
   const dx = 699.2 * (1 - Math.exp(-t / 6.5));
-  const hover = Math.sin(t * 2.1) * 2.2 * Math.min(1, t / 3);
-  const dy = 198 * (1 - Math.exp(-t / 5.6)) + hover;
+  const dy = 198 * (1 - Math.exp(-t / 5.6));
 
   const tipX = START_X + dx;
   const tipY = BASELINE_Y - dy;
@@ -220,7 +219,10 @@ export function CrashScene({
     let rafId = 0;
     const renderFrame = (now: number) => {
       const sec = Math.max(0, (now - flightStartTime) / 1000);
-      const mult = Math.floor(Math.exp(flightGrowthK * sec) * 100) / 100;
+      const mult = Math.min(
+        35,
+        Math.floor(Math.exp(flightGrowthK * sec) * 100) / 100
+      );
       const geom = getTrajectoryGeometry('flight', sec);
 
       if (pathRef.current) {

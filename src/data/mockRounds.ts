@@ -77,19 +77,22 @@ function createMaxBetLcg(seed: number): () => number {
   };
 }
 
+export const MAX_CRASH_POINT = 35;
+
 export function generateCrashPoint(roundSeed?: number): number {
   const rng =
     roundSeed !== undefined
       ? createMaxBetLcg((roundSeed + 0x9e3779b9) >>> 0)
       : Math.random;
   const r = rng();
-  // ~3% instant bust (1.00x) with 97% RTP heavy-tailed Crash curve matching [1.00, 100.00]
+  // ~3% instant bust (1.00x) with realistic Crash distribution capped strictly at 35.00x max
   if (r < 0.03) {
     return 1.0;
   }
-  const safeR = Math.min(r, 0.9999);
-  const raw = 0.97 / (1 - safeR);
-  const clamped = Math.min(Math.max(raw, 1.01), 100);
+  const u = Math.min(0.9999, Math.max(0, (r - 0.03) / 0.97));
+  const minInv = 1 / MAX_CRASH_POINT;
+  const raw = 1 / (1 - u * (1 - minInv));
+  const clamped = Math.min(Math.max(raw, 1.01), MAX_CRASH_POINT);
   return Number(clamped.toFixed(2));
 }
 

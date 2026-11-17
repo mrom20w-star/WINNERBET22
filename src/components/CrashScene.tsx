@@ -1,7 +1,10 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { MOUNTAIN_BG_URI, PLANE_SPRITE_URI } from '../data/crashAssets';
 import { EXPLOSION_FPS, EXPLOSION_FRAMES } from '../data/explosionAssets';
-import { MAXBET_WAITING_SEC } from '../services/maxbetLive';
+import {
+  MAXBET_WAITING_SEC,
+  multiplierAtFlightSec,
+} from '../services/maxbetLive';
 import { GamePhase, SceneResultBanner } from '../types/crash';
 
 interface CrashSceneProps {
@@ -62,8 +65,8 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
   }
 
   const t = Math.max(0, elapsedSec);
-  const dx = 699.2 * (1 - Math.exp(-t / 2.2));
-  const dy = 198 * (1 - Math.exp(-t / 1.9));
+  const dx = 699.2 * (1 - Math.exp(-t / 2.6));
+  const dy = 198 * (1 - Math.exp(-t / 2.3));
 
   const tipX = START_X + dx;
   const tipY = BASELINE_Y - dy;
@@ -73,7 +76,7 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
   const c2y = BASELINE_Y - dy * 0.42;
 
   // Monotonically easing upward pitch (never dips down mid-flight)
-  const angleDeg = -6.0 * (1 - Math.exp(-t / 0.5));
+  const angleDeg = -6.0 * (1 - Math.exp(-t / 0.45));
 
   return {
     pathD: `M ${START_X} ${BASELINE_Y} C ${c1x} ${c1y} ${c2x} ${c2y} ${tipX} ${tipY}`,
@@ -236,13 +239,14 @@ export function CrashScene({
   // Native 60/120fps direct GPU-composited DOM/SVG updates during flight
   useLayoutEffect(() => {
     if (isFirebaseClosed || phase !== 'flight') return;
+    void flightGrowthK;
 
     let rafId = 0;
     const renderFrame = (now: number) => {
       const sec = Math.max(0, (now - flightStartTime) / 1000);
       const mult = Math.min(
         35,
-        Math.floor(Math.exp(flightGrowthK * sec) * 100) / 100
+        Math.floor(multiplierAtFlightSec(sec) * 100) / 100
       );
       const geom = getTrajectoryGeometry('flight', sec);
 

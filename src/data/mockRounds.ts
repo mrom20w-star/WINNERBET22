@@ -125,14 +125,14 @@ export function generateSimulatedBets(roundSeed: number): {
   }).sort((a, b) => b.stake - a.stake);
 
   const statsRng = createMaxBetLcg(roundSeed + 0x23f3);
-  const startCount = 15 + Math.floor(statsRng() * 6);
-  const endCount = 1200 + Math.floor(statsRng() * 7800);
-  const avgBet = 58 + statsRng() * 52;
-  const targetPool = Math.round(endCount * avgBet);
+  const totalBetsCount = 220 + Math.floor(statsRng() * 175);
+  const avgBet = 115 + statsRng() * 95;
+  const cents = Math.floor(statsRng() * 100) / 100;
+  const targetPool = Number((totalBetsCount * avgBet + cents).toFixed(2));
 
   return {
     rows,
-    totalBetsCount: Math.max(rows.length, startCount + Math.round(endCount * 0.35)),
+    totalBetsCount,
     baseTotalPool: targetPool,
   };
 }

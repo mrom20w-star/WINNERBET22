@@ -34,6 +34,16 @@ export const MAXBET_WAITING_MS = MAXBET_WAITING_SEC * 1000;
 export const MAXBET_GROWTH_K = 0.06;
 export const MAXBET_POLL_INTERVAL_MS = 400;
 
+export function multiplierAtFlightSec(sec: number): number {
+  const t = Math.max(0, sec);
+  return Math.exp(0.073 * t + 0.013 * t * t);
+}
+
+export function flightSecForMultiplier(mult: number): number {
+  const ln = Math.log(Math.max(1, mult));
+  return (-0.073 + Math.sqrt(0.073 * 0.073 + 0.052 * ln)) / 0.026;
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,

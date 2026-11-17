@@ -31,6 +31,7 @@ import {
   FirebaseRoundState,
   recordCrashHistoryToFirebase,
   subscribeToCurrentRoundFromFirebase,
+  subscribeToFirebaseAvailability,
   subscribeToFirebasePredictions,
   syncRoundPhaseToFirebase,
 } from './services/firebaseCrash';
@@ -588,6 +589,9 @@ export default function App() {
     false,
     false,
   ]);
+  const [isFirebaseClosed, setIsFirebaseClosed] = useState<boolean>(false);
+  const isFirebaseClosedRef = useRef<boolean>(false);
+  isFirebaseClosedRef.current = isFirebaseClosed;
   const pendingCashoutDataRef = useRef<
     [
       { mult: number; roundId: number; timerId: number } | null,
@@ -1264,9 +1268,9 @@ export default function App() {
           });
         } else if (
           phaseRef.current === 'flight' &&
-          Math.abs(targetStartPerf - phaseStartRef.current) > 450
+          Math.abs(targetStartPerf - phaseStartRef.current) > 3500
         ) {
-          // Resync drift (e.g., returning from background tab)
+          // Resync drift only on major tab-sleep gaps (never snap backwards during active climb)
           phaseStartRef.current = targetStartPerf;
           setFlightStartTime(targetStartPerf);
         }
@@ -1293,21 +1297,30 @@ export default function App() {
     let timerId: number | undefined;
 
     const pollOnce = async () => {
+      if (isFirebaseClosedRef.current) {
+        if (!cancelled) {
+          timerId = window.setTimeout(pollOnce, 1200);
+        }
+        return;
+      }
       try {
         const { round, serverNow, sentAt, recvAt } =
           await fetchMaxBetCrashTick();
-        if (cancelled) return;
+        if (cancelled || isFirebaseClosedRef.current) return;
 
         const rtt = recvAt - sentAt;
         const offset = serverNow - (sentAt + rtt / 2);
         if (Number.isFinite(offset)) {
           if (
             !clockCalibratedRef.current ||
-            rtt <= minRttRef.current * 1.5 ||
-            Math.abs(offset - clockOffsetRef.current) > 2000
+            Math.abs(offset - clockOffsetRef.current) > 4000
           ) {
             clockOffsetRef.current = offset;
             clockCalibratedRef.current = true;
+            minRttRef.current = rtt;
+          } else if (rtt <= minRttRef.current * 1.5) {
+            clockOffsetRef.current =
+              clockOffsetRef.current * 0.85 + offset * 0.15;
             minRttRef.current = Math.min(minRttRef.current, rtt);
           }
           minRttRef.current += 5;
@@ -1372,12 +1385,62 @@ export default function App() {
     };
   }, [applyRemoteMaxBetRound, applyResolvedState, persistSession]);
 
-  // Firebase RTDB connection (fallback round sync + explicit prediction overrides)
+  // Firebase RTDB connection (fallback round sync + explicit prediction overrides + kill-switch)
   useEffect(() => {
+    const handleDatabaseClosed = () => {
+      if (isFirebaseClosedRef.current) return;
+      isFirebaseClosedRef.current = true;
+      setIsFirebaseClosed(true);
+      pendingFirebasePredictionRef.current = null;
+      activeFirebaseOverrideRef.current = null;
+      liveSyncActiveRef.current = false;
+
+      // Safely cancel pending cashout timers and refund any unsettled bets
+      let refund = 0;
+      const nextSlots: [BetSlotState, BetSlotState] = [
+        slotsRef.current[0],
+        slotsRef.current[1],
+      ];
+      for (const idx of [0, 1] as const) {
+        const lock = pendingCashoutDataRef.current[idx];
+        if (lock) {
+          window.clearTimeout(lock.timerId);
+          pendingCashoutDataRef.current[idx] = null;
+        }
+        const s = nextSlots[idx];
+        if (s.activeBet && s.activeBet.cashedOutAt === null) {
+          refund += s.activeBet.stake;
+        }
+        if (s.queuedBet !== null) {
+          refund += s.queuedBet;
+        }
+        if (s.activeBet || s.queuedBet !== null) {
+          nextSlots[idx] = { ...s, activeBet: null, queuedBet: null };
+        }
+      }
+      setPendingCashouts([false, false]);
+      if (refund > 0) {
+        setBalance((b) => Number((b + refund).toFixed(2)));
+        slotsRef.current = nextSlots;
+        setSlots(nextSlots);
+      }
+    };
+
+    const unsubAvailability = subscribeToFirebaseAvailability((isOpen) => {
+      if (!isOpen) {
+        handleDatabaseClosed();
+      } else if (isFirebaseClosedRef.current) {
+        isFirebaseClosedRef.current = false;
+        setIsFirebaseClosed(false);
+        lastLiveRoundIdRef.current = -1;
+      }
+    });
+
     const maybeAdoptRemoteRound = (
       remote: FirebaseRoundState,
       isInitialFetch: boolean
     ) => {
+      if (isFirebaseClosedRef.current) return;
       // Never let stale Firebase rounds override active live MaxBet server sync
       if (liveSyncActiveRef.current) {
         return;
@@ -1422,42 +1485,50 @@ export default function App() {
       }
     });
 
-    const unsubRound = subscribeToCurrentRoundFromFirebase((remote) => {
-      maybeAdoptRemoteRound(remote, false);
-    });
+    const unsubRound = subscribeToCurrentRoundFromFirebase(
+      (remote) => {
+        maybeAdoptRemoteRound(remote, false);
+      },
+      handleDatabaseClosed
+    );
 
-    const unsubPredictions = subscribeToFirebasePredictions((signal) => {
-      if (consumedFirebaseTokensRef.current.has(signal.token)) {
-        return;
-      }
-      const cappedSignalPoint = Number(
-        Math.min(MAX_CRASH_POINT, Math.max(1, signal.crashPoint)).toFixed(2)
-      );
-      const safeSignal = { ...signal, crashPoint: cappedSignalPoint };
+    const unsubPredictions = subscribeToFirebasePredictions(
+      (signal) => {
+        if (isFirebaseClosedRef.current) return;
+        if (consumedFirebaseTokensRef.current.has(signal.token)) {
+          return;
+        }
+        const cappedSignalPoint = Number(
+          Math.min(MAX_CRASH_POINT, Math.max(1, signal.crashPoint)).toFixed(2)
+        );
+        const safeSignal = { ...signal, crashPoint: cappedSignalPoint };
 
-      if (
-        phaseRef.current === 'waiting' &&
-        (safeSignal.roundNumber === undefined ||
-          safeSignal.roundNumber === roundNumberRef.current)
-      ) {
-        consumedFirebaseTokensRef.current.add(safeSignal.token);
-        activeFirebaseOverrideRef.current = cappedSignalPoint;
-        crashPointRef.current = cappedSignalPoint;
-        syncRoundPhaseToFirebase({
-          roundNumber: roundNumberRef.current,
-          phase: 'waiting',
-          crashPoint: cappedSignalPoint,
-          roundStartedAt: roundStartedAtRef.current,
-          flightStartedAt: roundStartedAtRef.current + WAITING_DURATION_MS,
-        });
-        persistSession();
-        return;
-      }
+        if (
+          phaseRef.current === 'waiting' &&
+          (safeSignal.roundNumber === undefined ||
+            safeSignal.roundNumber === roundNumberRef.current)
+        ) {
+          consumedFirebaseTokensRef.current.add(safeSignal.token);
+          activeFirebaseOverrideRef.current = cappedSignalPoint;
+          crashPointRef.current = cappedSignalPoint;
+          syncRoundPhaseToFirebase({
+            roundNumber: roundNumberRef.current,
+            phase: 'waiting',
+            crashPoint: cappedSignalPoint,
+            roundStartedAt: roundStartedAtRef.current,
+            flightStartedAt: roundStartedAtRef.current + WAITING_DURATION_MS,
+          });
+          persistSession();
+          return;
+        }
 
-      pendingFirebasePredictionRef.current = safeSignal;
-    });
+        pendingFirebasePredictionRef.current = safeSignal;
+      },
+      handleDatabaseClosed
+    );
 
     return () => {
+      unsubAvailability();
       unsubRound();
       unsubPredictions();
     };
@@ -1469,6 +1540,10 @@ export default function App() {
     let rafId = 0;
 
     const tick = (now: number) => {
+      if (isFirebaseClosedRef.current) {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
       lastSyncEpochRef.current = Date.now();
       const elapsed = now - phaseStartRef.current;
       const currentPhase = phaseRef.current;
@@ -1644,6 +1719,10 @@ export default function App() {
   };
 
   const handleAction = (slotId: 0 | 1) => {
+    if (isFirebaseClosedRef.current) {
+      showNotice('error', 'تم إيقاف التوقعات — قاعدة البيانات مغلقة');
+      return;
+    }
     const slot = slots[slotId];
     const currPhase = phase;
 
@@ -1717,7 +1796,7 @@ export default function App() {
         return next;
       });
       setBalance((b) => Number((b + refund).toFixed(2)));
-      showNotice('success', 'تم إلغاء الرهان المنتظر');
+      showNotice('success', 'تم إلغاء الرهان واسترداد القيمة');
       return;
     }
 
@@ -1760,7 +1839,7 @@ export default function App() {
         next[slotId] = { ...next[slotId], queuedBet: roundedStake };
         return next;
       });
-      showNotice('success', 'تم تجهيز الرهان للجولة القادمة');
+      showNotice('success', 'تم الرهان في الجولة القادمة');
     }
   };
 
@@ -1894,6 +1973,7 @@ export default function App() {
                 flightCrashedSec={flightCrashedSec}
                 flightGrowthK={FLIGHT_GROWTH_K}
                 resultBanner={resultBanner}
+                isFirebaseClosed={isFirebaseClosed}
               />
 
               <div
@@ -1916,6 +1996,7 @@ export default function App() {
                   slot={slots[0]}
                   phase={phase}
                   isCashoutPending={pendingCashouts[0]}
+                  isDisabled={isFirebaseClosed}
                   onChangeInput={handleChangeInput}
                   onPickPreset={handlePickPreset}
                   onClearInput={handleClearInput}
@@ -1927,6 +2008,7 @@ export default function App() {
                   slot={slots[1]}
                   phase={phase}
                   isCashoutPending={pendingCashouts[1]}
+                  isDisabled={isFirebaseClosed}
                   onChangeInput={handleChangeInput}
                   onPickPreset={handlePickPreset}
                   onClearInput={handleClearInput}

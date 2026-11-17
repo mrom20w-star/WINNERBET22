@@ -6,6 +6,7 @@ interface BetPanelProps {
   slot: BetSlotState;
   phase: GamePhase;
   isCashoutPending?: boolean;
+  isDisabled?: boolean;
   onChangeInput: (slotId: 0 | 1, value: string) => void;
   onPickPreset: (slotId: 0 | 1, amount: number) => void;
   onClearInput: (slotId: 0 | 1) => void;
@@ -17,6 +18,7 @@ export function BetPanel({
   slot,
   phase,
   isCashoutPending = false,
+  isDisabled = false,
   onChangeInput,
   onPickPreset,
   onClearInput,
@@ -45,14 +47,28 @@ export function BetPanel({
   const isCrashed = phase === 'crashed';
 
   const hasUnsettledFlightBet =
-    isFlight && slot.activeBet !== null && slot.activeBet.cashedOutAt === null;
-  const hasWaitingBet = isWaiting && slot.activeBet !== null;
-  const hasQueuedNext = slot.queuedBet !== null;
+    !isDisabled &&
+    isFlight &&
+    slot.activeBet !== null &&
+    slot.activeBet.cashedOutAt === null;
+  const hasWaitingBet = !isDisabled && isWaiting && slot.activeBet !== null;
+  const hasQueuedNext = !isDisabled && slot.queuedBet !== null;
+  const alreadyCashedOut =
+    !isDisabled &&
+    isFlight &&
+    slot.activeBet !== null &&
+    slot.activeBet.cashedOutAt !== null;
 
   const isLocked =
-    hasWaitingBet ||
-    hasQueuedNext ||
-    (isFlight && slot.activeBet !== null && slot.activeBet.cashedOutAt !== null);
+    isDisabled || hasWaitingBet || hasQueuedNext || alreadyCashedOut;
+
+  const showNextRoundSublabel =
+    !isCashoutPending &&
+    !hasUnsettledFlightBet &&
+    !hasWaitingBet &&
+    !hasQueuedNext &&
+    !alreadyCashedOut &&
+    (isFlight || isCrashed);
 
   let primaryLabel = 'وضع الرهان';
   let isPendingStyle = isCashoutPending;
@@ -62,13 +78,10 @@ export function BetPanel({
     isPendingStyle = true;
   } else if (hasUnsettledFlightBet && slot.activeBet) {
     primaryLabel = 'سحب';
-  } else if (hasWaitingBet) {
+  } else if (hasWaitingBet || hasQueuedNext) {
     primaryLabel = 'إلغاء';
     isPendingStyle = true;
-  } else if (hasQueuedNext) {
-    primaryLabel = 'في الانتظار';
-    isPendingStyle = true;
-  } else if (isFlight || isCrashed) {
+  } else {
     primaryLabel = 'وضع الرهان';
   }
 
@@ -86,6 +99,7 @@ export function BetPanel({
             aria-label="قيمة الرهان"
             value={slot.inputValue}
             disabled={
+              isDisabled ||
               isCashoutPending ||
               hasWaitingBet ||
               hasUnsettledFlightBet ||
@@ -97,6 +111,7 @@ export function BetPanel({
             type="button"
             aria-label="مسح القيمة"
             disabled={
+              isDisabled ||
               isCashoutPending ||
               hasWaitingBet ||
               hasUnsettledFlightBet ||
@@ -114,6 +129,7 @@ export function BetPanel({
               key={amount}
               type="button"
               disabled={
+                isDisabled ||
                 isCashoutPending ||
                 hasWaitingBet ||
                 hasUnsettledFlightBet ||
@@ -137,6 +153,7 @@ export function BetPanel({
           className={`auto-button ${slot.autoConfig.enabled ? 'is-on' : ''} ${
             pressedKey === 'auto' ? 'is-pressed' : ''
           }`}
+          disabled={isDisabled}
           onClick={() => {
             triggerPress('auto');
             onOpenAuto(slot.id);
@@ -152,8 +169,8 @@ export function BetPanel({
           className={`place-button ${isPendingStyle ? 'is-pending' : ''} ${
             pressedKey === 'place' ? 'is-pressed' : ''
           }`}
-          aria-busy={isCashoutPending || hasQueuedNext ? 'true' : 'false'}
-          disabled={isCashoutPending}
+          aria-busy={isCashoutPending ? 'true' : 'false'}
+          disabled={isCashoutPending || isDisabled}
           onClick={() => {
             triggerPress('place');
             onAction(slot.id);
@@ -165,18 +182,10 @@ export function BetPanel({
               <i />
               <i />
             </span>
-          ) : hasQueuedNext ? (
-            <span className="place-button-lines">
-              <span>{primaryLabel}</span>
-              <span className="bet-dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-            </span>
           ) : (
             <span className="place-button-lines">
               <span>{primaryLabel}</span>
+              {showNextRoundSublabel && <small>(على الجولة التالية)</small>}
             </span>
           )}
         </button>

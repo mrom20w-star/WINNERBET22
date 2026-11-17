@@ -139,8 +139,16 @@ function parseRemoteRoundState(raw: unknown): FirebaseRoundState | null {
   };
 }
 
+function isPermissionDeniedError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; message?: unknown };
+  const text = `${String(e.code ?? '')} ${String(e.message ?? '')}`;
+  return /permission[_-]?denied/i.test(text);
+}
+
 export function subscribeToFirebasePredictions(
-  onSignal: (signal: FirebasePredictionSignal) => void
+  onSignal: (signal: FirebasePredictionSignal) => void,
+  onPermissionDenied?: () => void
 ): Unsubscribe {
   const paths = [
     'crash/override',
@@ -158,14 +166,104 @@ export function subscribeToFirebasePredictions(
           onSignal(parsed);
         }
       },
-      () => {
-        // Silently ignore listener errors if database rules restrict a path
+      (err) => {
+        if (isPermissionDeniedError(err)) {
+          onPermissionDenied?.();
+        }
       }
     )
   );
 
   return () => {
     unsubs.forEach((unsub) => unsub());
+  };
+}
+
+export function subscribeToFirebaseAvailability(
+  onStatusChange: (isOpen: boolean) => void
+): Unsubscribe {
+  let disposed = false;
+  let retryTimerId: number | undefined;
+  let activeUnsub: Unsubscribe | null = null;
+
+  const stopRetry = () => {
+    if (retryTimerId !== undefined) {
+      window.clearInterval(retryTimerId);
+      retryTimerId = undefined;
+    }
+  };
+
+  const attachListener = () => {
+    if (disposed) return;
+    if (activeUnsub) {
+      activeUnsub();
+      activeUnsub = null;
+    }
+
+    activeUnsub = onValue(
+      ref(db, 'crash'),
+      (snapshot) => {
+        if (disposed) return;
+        stopRetry();
+        const val = snapshot.val();
+        if (
+          val === false ||
+          (typeof val === 'object' &&
+            val !== null &&
+            (val.enabled === false ||
+              val.active === false ||
+              val.predictionsEnabled === false))
+        ) {
+          onStatusChange(false);
+          return;
+        }
+        onStatusChange(true);
+      },
+      (err) => {
+        if (disposed) return;
+        if (isPermissionDeniedError(err)) {
+          onStatusChange(false);
+          if (activeUnsub) {
+            activeUnsub();
+            activeUnsub = null;
+          }
+          if (retryTimerId === undefined) {
+            retryTimerId = window.setInterval(() => {
+              if (disposed) return;
+              get(ref(db, 'crash'))
+                .then((snap) => {
+                  if (disposed) return;
+                  stopRetry();
+                  const val = snap.val();
+                  const disabled =
+                    val === false ||
+                    (typeof val === 'object' &&
+                      val !== null &&
+                      (val.enabled === false ||
+                        val.active === false ||
+                        val.predictionsEnabled === false));
+                  onStatusChange(!disabled);
+                  attachListener();
+                })
+                .catch(() => {
+                  // Still denied / closed
+                });
+            }, 3500);
+          }
+        }
+      }
+    );
+  };
+
+  attachListener();
+
+  return () => {
+    disposed = true;
+    stopRetry();
+    if (activeUnsub) {
+      activeUnsub();
+      activeUnsub = null;
+    }
   };
 }
 
@@ -179,7 +277,8 @@ export async function fetchCurrentRoundStateFromFirebase(): Promise<FirebaseRoun
 }
 
 export function subscribeToCurrentRoundFromFirebase(
-  onRound: (state: FirebaseRoundState) => void
+  onRound: (state: FirebaseRoundState) => void,
+  onPermissionDenied?: () => void
 ): Unsubscribe {
   return onValue(
     ref(db, 'crash/current'),
@@ -189,8 +288,10 @@ export function subscribeToCurrentRoundFromFirebase(
         onRound(parsed);
       }
     },
-    () => {
-      // Silently ignore listener errors
+    (err) => {
+      if (isPermissionDeniedError(err)) {
+        onPermissionDenied?.();
+      }
     }
   );
 }

@@ -388,12 +388,29 @@ input, textarea, [contenteditable=true] {
 
 .c1x .plane {
   z-index: 5;
+  left: 0;
+  top: 0;
   transform-origin: 8% 88%;
   pointer-events: none;
-  will-change: left, top, transform;
+  will-change: transform;
   width: 14.6%;
   height: auto;
   position: absolute;
+}
+
+.c1x .scene-closed-msg {
+  z-index: 8;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 8%;
+  font-size: clamp(13px, 3.6cqw, 20px);
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.72);
+  pointer-events: none;
 }
 
 .c1x .explosion {

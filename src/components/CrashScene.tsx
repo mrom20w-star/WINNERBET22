@@ -5,7 +5,7 @@ import {
   MAXBET_WAITING_SEC,
   multiplierAtFlightSec,
 } from '../services/maxbetLive';
-import { GamePhase, SceneResultBanner } from '../types/crash';
+import { BetNoticeToast, GamePhase, SceneResultBanner } from '../types/crash';
 
 interface CrashSceneProps {
   phase: GamePhase;
@@ -17,6 +17,7 @@ interface CrashSceneProps {
   flightCrashedSec: number;
   flightGrowthK: number;
   resultBanner: SceneResultBanner | null;
+  betNotice?: BetNoticeToast | null;
   isFirebaseClosed?: boolean;
 }
 
@@ -65,8 +66,8 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
   }
 
   const t = Math.max(0, elapsedSec);
-  const dx = 699.2 * (1 - Math.exp(-t / 3.05));
-  const dy = 202 * Math.pow(1 - Math.exp(-t / 2.55), 1.18);
+  const dx = 705 * (1 - Math.exp(-t / 4.2));
+  const dy = 200 * Math.pow(1 - Math.exp(-t / 3.8), 1.15);
 
   const tipX = START_X + dx;
   const tipY = BASELINE_Y - dy;
@@ -76,7 +77,7 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
   const c2y = BASELINE_Y - dy * 0.36;
 
   // Monotonically easing upward pitch (never dips down mid-flight)
-  const angleDeg = -7.5 * (1 - Math.exp(-t / 0.55));
+  const angleDeg = -7.5 * (1 - Math.exp(-t / 0.7));
 
   return {
     pathD: `M ${START_X} ${BASELINE_Y} C ${c1x} ${c1y} ${c2x} ${c2y} ${tipX} ${tipY}`,
@@ -145,6 +146,7 @@ export function CrashScene({
   flightCrashedSec,
   flightGrowthK,
   resultBanner,
+  betNotice = null,
   isFirebaseClosed = false,
 }: CrashSceneProps) {
   const sceneRef = useRef<HTMLElement | null>(null);
@@ -504,6 +506,17 @@ export function CrashScene({
                 }`}
               >
                 {resultBanner.text}
+              </div>
+            )}
+
+            {betNotice && (
+              <div
+                key={`notice-${betNotice.id}`}
+                className={`bet-notice ${
+                  betNotice.type === 'error' ? 'is-error' : ''
+                }`}
+              >
+                {betNotice.text}
               </div>
             )}
           </>

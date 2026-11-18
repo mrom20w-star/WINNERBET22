@@ -77,19 +77,19 @@ export function Header({
           type="button"
           aria-label="المكافآت والإشعارات"
           onClick={onOpenNotifications}
-          className="relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#6e7782] transition-colors hover:bg-black/5 hover:text-[#424a54] active:opacity-60"
+          className="relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#e5533d] transition-colors hover:bg-black/5 active:opacity-60"
         >
           <svg
-            width="26"
-            height="26"
+            width="28"
+            height="28"
             viewBox="0 0 34 34"
             fill="none"
             aria-hidden="true"
           >
             <path
               d="M17 2.8l1.9 1.7 2.5-.8 1.2 2.3 2.6.2.3 2.6 2.4 1.1-.6 2.5 1.8 1.9-1.4 2.2 1 2.4-2.1 1.5.1 2.6-2.5.7-.7 2.5-2.6-.2-1.6 2-2.3-1-2.2 1.3-1.8-1.9-2.5.4-1-2.4-2.5-.4-.1-2.6-2.2-1.3.8-2.5-1.5-2 1.7-2-.7-2.5 2.3-1.2.2-2.6 2.6-.3 1.1-2.4 2.5.6L17 2.8z"
-              stroke="currentColor"
-              strokeWidth="1.25"
+              stroke="#e5533d"
+              strokeWidth="1.4"
               strokeLinejoin="round"
               fill="#ffffff"
             />
@@ -97,7 +97,7 @@ export function Header({
               x="17"
               y="18.8"
               textAnchor="middle"
-              fill="currentColor"
+              fill="#5a6069"
               fontSize="5.2"
               fontWeight="800"
               fontFamily="Roboto, Arial, sans-serif"
@@ -109,7 +109,7 @@ export function Header({
               cx="25.6"
               cy="25.6"
               r="4.7"
-              fill="currentColor"
+              fill="#5a6069"
               stroke="#ffffff"
               strokeWidth="1.3"
             />

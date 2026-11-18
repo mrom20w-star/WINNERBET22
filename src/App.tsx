@@ -55,6 +55,39 @@ function floorMultiplier(val: number): number {
   return Math.floor(val * 100) / 100;
 }
 
+function formatEgpAmount(amount: number): string {
+  const rounded = Number(amount.toFixed(2));
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+}
+
+const CONSUMED_TOKENS_KEY = 'maxbet_consumed_fb_tokens_v1';
+
+function loadConsumedTokens(): Set<string> {
+  try {
+    const raw = window.sessionStorage.getItem(CONSUMED_TOKENS_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        return new Set(arr.filter((x): x is string => typeof x === 'string').slice(-60));
+      }
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return new Set();
+}
+
+function saveConsumedTokens(tokens: Set<string>) {
+  try {
+    window.sessionStorage.setItem(
+      CONSUMED_TOKENS_KEY,
+      JSON.stringify(Array.from(tokens).slice(-60))
+    );
+  } catch {
+    // Ignore storage access errors
+  }
+}
+
 const HISTORY_ICON_STYLE = {
   maskImage: `url("${HISTORY_ICON_URI}")`,
   WebkitMaskImage: `url("${HISTORY_ICON_URI}")`,
@@ -535,6 +568,7 @@ export default function App() {
     initial.historyRounds
   );
   const [activeSheet, setActiveSheet] = useState<ActiveSheet>(null);
+  const [showSecondSlot, setShowSecondSlot] = useState<boolean>(true);
   const [betNotice, setBetNotice] = useState<BetNoticeToast | null>(null);
   const [resultBanner, setResultBanner] = useState<SceneResultBanner | null>(null);
   const [isRoundTransition, setIsRoundTransition] = useState<boolean>(false);
@@ -569,7 +603,7 @@ export default function App() {
     null
   );
   const activeFirebaseOverrideRef = useRef<number | null>(null);
-  const consumedFirebaseTokensRef = useRef<Set<string>>(new Set());
+  const consumedFirebaseTokensRef = useRef<Set<string>>(loadConsumedTokens());
   const phaseStartRef = useRef<number>(initialPhaseStartPerf);
   const lastSyncEpochRef = useRef<number>(Date.now());
   const toastCounterRef = useRef<number>(1);
@@ -646,12 +680,13 @@ export default function App() {
       (signal.roundNumber === undefined || signal.roundNumber === targetRound)
     ) {
       consumedFirebaseTokensRef.current.add(signal.token);
+      saveConsumedTokens(consumedFirebaseTokensRef.current);
       pendingFirebasePredictionRef.current = null;
       return Number(
         Math.min(MAX_CRASH_POINT, Math.max(1, signal.crashPoint)).toFixed(2)
       );
     }
-    return generateCrashPoint(targetRound);
+    return generateCrashPoint();
   }, []);
 
   useEffect(() => {
@@ -703,10 +738,9 @@ export default function App() {
       });
 
       setBalance((b) => Number((b + payout).toFixed(2)));
-      showBanner('win', `تم السحب — ربحت ${payout.toFixed(2)} ج.م`);
-      showNotice('success', `تم سحب ${payout.toFixed(2)} ج.م بنجاح`);
+      showBanner('win', `لقد فزت: EGP ${formatEgpAmount(payout)}`);
     },
-    [showBanner, showNotice]
+    [showBanner]
   );
 
   const triggerCrashState = useCallback(
@@ -823,8 +857,7 @@ export default function App() {
         setSlots(resolvedSlots);
         setBalance((b) => Number((b + extraPayout).toFixed(2)));
         if (!suppressBanner) {
-          showBanner('win', `تم السحب — ربحت ${extraPayout.toFixed(2)} ج.م`);
-          showNotice('success', `تم سحب ${extraPayout.toFixed(2)} ج.م بنجاح`);
+          showBanner('win', `لقد فزت: EGP ${formatEgpAmount(extraPayout)}`);
         }
       }
 
@@ -865,11 +898,11 @@ export default function App() {
         });
 
         if (!suppressBanner && hadLoss && roundPayout === 0) {
-          showBanner('loss', `خسرت ${roundStake.toFixed(2)} ج.م`);
+          showBanner('loss', 'سيحالفك الحظ في المرة القادمة');
         }
       }
     },
-    [showBanner, showNotice]
+    [showBanner]
   );
 
   const promoteSlotsForNextRound = useCallback(
@@ -1174,6 +1207,7 @@ export default function App() {
             safeSignal.roundNumber === roundNumberRef.current)
         ) {
           consumedFirebaseTokensRef.current.add(safeSignal.token);
+          saveConsumedTokens(consumedFirebaseTokensRef.current);
           activeFirebaseOverrideRef.current = cappedSignalPoint;
           crashPointRef.current = cappedSignalPoint;
           syncRoundPhaseToFirebase({
@@ -1233,6 +1267,7 @@ export default function App() {
               pending.roundNumber === roundNumberRef.current)
           ) {
             consumedFirebaseTokensRef.current.add(pending.token);
+            saveConsumedTokens(consumedFirebaseTokensRef.current);
             const cappedOverride = Number(
               Math.min(MAX_CRASH_POINT, Math.max(1, pending.crashPoint)).toFixed(2)
             );
@@ -1440,42 +1475,12 @@ export default function App() {
       return;
     }
 
-    // 2. Cancel active bet during waiting countdown
-    if (currPhase === 'waiting' && slot.activeBet !== null) {
-      const refund = slot.activeBet.stake;
-      setSlots((prev) => {
-        const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
-        next[slotId] = { ...next[slotId], activeBet: null };
-        return next;
-      });
-      setBalance((b) => Number((b + refund).toFixed(2)));
-      showNotice('success', 'تم إلغاء الرهان واسترداد القيمة');
+    // 2. Waiting bet already accepted or next-round bet queued -> locked cleanly
+    if ((currPhase === 'waiting' && slot.activeBet !== null) || slot.queuedBet !== null) {
       return;
     }
 
-    // 3. Cancel queued bet for next round
-    if (slot.queuedBet !== null) {
-      const refund = slot.queuedBet;
-      setSlots((prev) => {
-        const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
-        next[slotId] = { ...next[slotId], queuedBet: null };
-        return next;
-      });
-      setBalance((b) => Number((b + refund).toFixed(2)));
-      showNotice('success', 'تم إلغاء الرهان واسترداد القيمة');
-      return;
-    }
-
-    // 4. Already cashed out in this flight round -> do nothing until next round
-    if (
-      currPhase === 'flight' &&
-      slot.activeBet !== null &&
-      slot.activeBet.cashedOutAt !== null
-    ) {
-      return;
-    }
-
-    // 5. Place new bet (either immediate in waiting or queued for next round)
+    // 3. Place new bet (either immediate in waiting, or queued for next round during flight/crashed including after cashout)
     const stake = Number.parseFloat(slot.inputValue);
     if (Number.isNaN(stake) || stake < 1) {
       showNotice('error', 'أدخل قيمة رهان صالحة (1 EGP على الأقل)');
@@ -1498,7 +1503,7 @@ export default function App() {
         };
         return next;
       });
-      showNotice('success', `تم وضع رهان ${roundedStake} ج.م`);
+      showNotice('success', 'تم قبول الرهان!');
     } else {
       setSlots((prev) => {
         const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
@@ -1560,7 +1565,7 @@ export default function App() {
       const isLoss = phase === 'crashed' && !isWin;
       userLiveRows.push({
         id: `me-${slot.id}`,
-        username: `أنت (${slot.id + 1})`,
+        username: '1881260001',
         stake: slot.activeBet.stake,
         targetCashout: slot.autoConfig.enabled ? slot.autoConfig.autoCashout : 0,
         cashedOutAt: slot.activeBet.cashedOutAt,
@@ -1571,26 +1576,44 @@ export default function App() {
     }
   });
 
-  const combinedRows = [...userLiveRows, ...simulatedRows];
+  // Natural countdown ramp during waiting (7s -> 1s) matching reference video progression
+  const waitRampSteps = [0.014, 0.022, 0.036, 0.085, 0.145, 0.23, 0.96];
+  const waitStepIdx = Math.max(
+    0,
+    Math.min(waitRampSteps.length - 1, MAXBET_WAITING_SEC - countdownSeconds)
+  );
+  const waitRampRatio = phase === 'waiting' ? waitRampSteps[waitStepIdx] : 1;
+
+  const visibleSimRows =
+    phase === 'waiting'
+      ? simulatedRows.slice(
+          0,
+          Math.min(
+            simulatedRows.length,
+            Math.max(2, Math.round(simulatedRows.length * Math.min(1, waitRampRatio * 1.45)))
+          )
+        )
+      : simulatedRows;
+
+  const combinedRows = [...userLiveRows, ...visibleSimRows];
 
   const userStakeSum = userLiveRows.reduce((acc, r) => acc + r.stake, 0);
-  const simProfitSum = simulatedRows.reduce(
+  const simProfitSum = visibleSimRows.reduce(
     (acc, r) => acc + (r.cashedOutAt !== null ? r.payout : 0),
     0
   );
   const userProfitSum = userLiveRows.reduce((acc, r) => acc + r.payout, 0);
 
-  const waitRampRatio =
-    phase === 'waiting'
-      ? 0.68 +
-        0.32 *
-          ((MAXBET_WAITING_SEC - countdownSeconds) /
-            Math.max(1, MAXBET_WAITING_SEC - 1))
-      : 1;
   const displayBetsCount =
-    Math.round(baseStats.count * waitRampRatio) + userLiveRows.length;
+    Math.max(visibleSimRows.length, Math.round(baseStats.count * waitRampRatio)) +
+    userLiveRows.length;
+  const visibleSimStakeSum = visibleSimRows.reduce((acc, r) => acc + r.stake, 0);
   const displayTotalPool = Number(
-    (baseStats.pool * waitRampRatio + userStakeSum).toFixed(2)
+    (
+      (phase === 'waiting' && waitRampRatio < 0.5
+        ? visibleSimStakeSum
+        : baseStats.pool * waitRampRatio) + userStakeSum
+    ).toFixed(2)
   );
   const displayTotalProfit =
     phase === 'waiting'
@@ -1650,6 +1673,7 @@ export default function App() {
                 flightCrashedSec={flightCrashedSec}
                 flightGrowthK={FLIGHT_GROWTH_K}
                 resultBanner={resultBanner}
+                betNotice={betNotice}
                 isFirebaseClosed={isFirebaseClosed}
               />
 
@@ -1658,17 +1682,6 @@ export default function App() {
                   isRoundTransition ? 'is-round-transition' : ''
                 }`}
               >
-                {betNotice && (
-                  <div
-                    key={betNotice.id}
-                    className={`bet-notice ${
-                      betNotice.type === 'error' ? 'is-error' : ''
-                    }`}
-                  >
-                    {betNotice.text}
-                  </div>
-                )}
-
                 <BetPanel
                   slot={slots[0]}
                   phase={phase}
@@ -1681,17 +1694,29 @@ export default function App() {
                   onOpenAuto={(id) => setActiveSheet({ type: 'auto', slotId: id })}
                 />
 
-                <BetPanel
-                  slot={slots[1]}
-                  phase={phase}
-                  isCashoutPending={pendingCashouts[1]}
-                  isDisabled={isFirebaseClosed}
-                  onChangeInput={handleChangeInput}
-                  onPickPreset={handlePickPreset}
-                  onClearInput={handleClearInput}
-                  onAction={handleAction}
-                  onOpenAuto={(id) => setActiveSheet({ type: 'auto', slotId: id })}
-                />
+                {showSecondSlot && (
+                  <BetPanel
+                    slot={slots[1]}
+                    phase={phase}
+                    isCashoutPending={pendingCashouts[1]}
+                    isDisabled={isFirebaseClosed}
+                    onChangeInput={handleChangeInput}
+                    onPickPreset={handlePickPreset}
+                    onClearInput={handleClearInput}
+                    onAction={handleAction}
+                    onOpenAuto={(id) => setActiveSheet({ type: 'auto', slotId: id })}
+                    onClosePanel={() => setShowSecondSlot(false)}
+                  />
+                )}
+
+                <button
+                  type="button"
+                  className="add-bet-btn"
+                  onClick={() => setShowSecondSlot(true)}
+                >
+                  <span>+</span>
+                  <span>إضافة رهان</span>
+                </button>
               </div>
 
               <section className="stats-row">

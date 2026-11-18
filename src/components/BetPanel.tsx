@@ -12,6 +12,7 @@ interface BetPanelProps {
   onClearInput: (slotId: 0 | 1) => void;
   onAction: (slotId: 0 | 1) => void;
   onOpenAuto: (slotId: 0 | 1) => void;
+  onClosePanel?: () => void;
 }
 
 export function BetPanel({
@@ -24,6 +25,7 @@ export function BetPanel({
   onClearInput,
   onAction,
   onOpenAuto,
+  onClosePanel,
 }: BetPanelProps) {
   const [pressedKey, setPressedKey] = useState<string | null>(null);
   const [pickedPreset, setPickedPreset] = useState<number | null>(null);
@@ -53,34 +55,31 @@ export function BetPanel({
     slot.activeBet.cashedOutAt === null;
   const hasWaitingBet = !isDisabled && isWaiting && slot.activeBet !== null;
   const hasQueuedNext = !isDisabled && slot.queuedBet !== null;
-  const alreadyCashedOut =
-    !isDisabled &&
-    isFlight &&
-    slot.activeBet !== null &&
-    slot.activeBet.cashedOutAt !== null;
 
-  const isLocked =
-    isDisabled || hasWaitingBet || hasQueuedNext || alreadyCashedOut;
+  // Controls are dimmed/locked while waiting bet is accepted, active flight bet awaits cashout, or queued for next round
+  const isInputsLocked =
+    isDisabled ||
+    isCashoutPending ||
+    hasWaitingBet ||
+    hasUnsettledFlightBet ||
+    hasQueuedNext;
+
+  const isAcceptedStyle = hasWaitingBet || hasQueuedNext;
 
   const showNextRoundSublabel =
     !isCashoutPending &&
     !hasUnsettledFlightBet &&
     !hasWaitingBet &&
     !hasQueuedNext &&
-    !alreadyCashedOut &&
     (isFlight || isCrashed);
 
   let primaryLabel = 'وضع الرهان';
-  let isPendingStyle = isCashoutPending;
-
   if (isCashoutPending) {
     primaryLabel = 'جاري السحب';
-    isPendingStyle = true;
   } else if (hasUnsettledFlightBet && slot.activeBet) {
-    primaryLabel = 'سحب';
+    primaryLabel = 'أجمع';
   } else if (hasWaitingBet || hasQueuedNext) {
-    primaryLabel = 'إلغاء';
-    isPendingStyle = true;
+    primaryLabel = 'تم قبول الرهان';
   } else {
     primaryLabel = 'وضع الرهان';
   }
@@ -88,35 +87,34 @@ export function BetPanel({
   return (
     <section
       className={`bet-panel ${hasUnsettledFlightBet ? 'has-bet' : ''} ${
-        isLocked ? 'is-locked' : ''
-      }`}
+        isAcceptedStyle ? 'is-accepted' : ''
+      } ${isInputsLocked && !hasUnsettledFlightBet ? 'is-locked' : ''}`}
       aria-label="لوحة الرهان"
     >
+      {onClosePanel && (
+        <button
+          type="button"
+          className="bet-panel-close"
+          aria-label="إغلاق لوحة الرهان"
+          onClick={onClosePanel}
+        >
+          ×
+        </button>
+      )}
+
       <div className="bet-controls">
         <label className="amount-input">
           <input
             inputMode="decimal"
             aria-label="قيمة الرهان"
             value={slot.inputValue}
-            disabled={
-              isDisabled ||
-              isCashoutPending ||
-              hasWaitingBet ||
-              hasUnsettledFlightBet ||
-              hasQueuedNext
-            }
+            disabled={isInputsLocked}
             onChange={(e) => onChangeInput(slot.id, e.target.value)}
           />
           <button
             type="button"
             aria-label="مسح القيمة"
-            disabled={
-              isDisabled ||
-              isCashoutPending ||
-              hasWaitingBet ||
-              hasUnsettledFlightBet ||
-              hasQueuedNext
-            }
+            disabled={isInputsLocked}
             onClick={() => onClearInput(slot.id)}
           >
             ×
@@ -128,13 +126,7 @@ export function BetPanel({
             <button
               key={amount}
               type="button"
-              disabled={
-                isDisabled ||
-                isCashoutPending ||
-                hasWaitingBet ||
-                hasUnsettledFlightBet ||
-                hasQueuedNext
-              }
+              disabled={isInputsLocked}
               className={pickedPreset === amount ? 'is-picked' : ''}
               onClick={() => {
                 flashPreset(amount);
@@ -166,11 +158,15 @@ export function BetPanel({
 
         <button
           type="button"
-          className={`place-button ${isPendingStyle ? 'is-pending' : ''} ${
+          className={`place-button ${
+            isCashoutPending ? 'is-pending' : ''
+          } ${isAcceptedStyle ? 'is-accepted' : ''} ${
             pressedKey === 'place' ? 'is-pressed' : ''
           }`}
           aria-busy={isCashoutPending ? 'true' : 'false'}
-          disabled={isCashoutPending || isDisabled}
+          disabled={
+            isCashoutPending || isDisabled || hasWaitingBet || hasQueuedNext
+          }
           onClick={() => {
             triggerPress('place');
             onAction(slot.id);

@@ -11,8 +11,10 @@ export interface AutoPlayConfig {
   onLoss: StopAction;
 }
 
+export type BetSlotId = 0 | 1 | 2;
+
 export interface BetSlotState {
-  id: 0 | 1;
+  id: BetSlotId;
   inputValue: string;
   /** Bet placed for the currently active/upcoming round */
   activeBet: {
@@ -62,6 +64,6 @@ export type ActiveSheet =
   | null
   | { type: 'terms' }
   | { type: 'history' }
-  | { type: 'auto'; slotId: 0 | 1 }
+  | { type: 'auto'; slotId: BetSlotId }
   | { type: 'deposit' }
   | { type: 'notifications' };

@@ -19,6 +19,7 @@ import {
   ActiveSheet,
   AutoPlayConfig,
   BetNoticeToast,
+  BetSlotId,
   BetSlotState,
   GamePhase,
   HistoryRound,
@@ -105,7 +106,10 @@ const STATS_PROFIT_ICON_STYLE = {
   WebkitMaskImage: `url("${STATS_PROFIT_ICON_URI}")`,
 };
 
-function createInitialSlot(id: 0 | 1): BetSlotState {
+type BetSlotsTuple = [BetSlotState, BetSlotState, BetSlotState];
+const SLOT_IDS: readonly BetSlotId[] = [0, 1, 2];
+
+function createInitialSlot(id: BetSlotId): BetSlotState {
   return {
     id,
     inputValue: '20',
@@ -122,12 +126,28 @@ function createInitialSlot(id: 0 | 1): BetSlotState {
   };
 }
 
+function cloneSlotsTuple(slots: BetSlotsTuple): BetSlotsTuple {
+  return [
+    { ...slots[0], autoConfig: { ...slots[0].autoConfig } },
+    { ...slots[1], autoConfig: { ...slots[1].autoConfig } },
+    { ...slots[2], autoConfig: { ...slots[2].autoConfig } },
+  ];
+}
+
+function normalizeSlotsTuple(rawSlots: unknown[]): BetSlotsTuple {
+  return [
+    (rawSlots[0] as BetSlotState) ?? createInitialSlot(0),
+    (rawSlots[1] as BetSlotState) ?? createInitialSlot(1),
+    (rawSlots[2] as BetSlotState) ?? createInitialSlot(2),
+  ];
+}
+
 interface PersistedCrashSession {
   roundNumber: number;
   roundStartedAt: number;
   crashPoint: number;
   balance: number;
-  slots: [BetSlotState, BetSlotState];
+  slots: BetSlotsTuple;
   historyRounds: HistoryRound[];
 }
 
@@ -141,7 +161,7 @@ interface ResolvedTimelineState {
   crashedMultiplier: number;
   flightCrashedSec: number;
   balance: number;
-  slots: [BetSlotState, BetSlotState];
+  slots: BetSlotsTuple;
   historyRounds: HistoryRound[];
   simulatedRows: LiveBetRow[];
   baseStats: { count: number; pool: number };
@@ -193,17 +213,14 @@ function resolveTimelineToNow(
   let roundStartedAt = seed.roundStartedAt;
   let crashPoint = seed.crashPoint;
   let balance = seed.balance;
-  let slots: [BetSlotState, BetSlotState] = [
-    { ...seed.slots[0], autoConfig: { ...seed.slots[0].autoConfig } },
-    { ...seed.slots[1], autoConfig: { ...seed.slots[1].autoConfig } },
-  ];
+  let slots: BetSlotsTuple = cloneSlotsTuple(seed.slots);
   let historyRounds = [...seed.historyRounds];
 
   const settleCompletedRound = (targetCrash: number, rNum: number) => {
     let roundStake = 0;
     let roundPayout = 0;
     let bestCashout: number | null = null;
-    for (const idx of [0, 1] as const) {
+    for (const idx of SLOT_IDS) {
       const s = slots[idx];
       if (!s.activeBet) continue;
       roundStake += s.activeBet.stake;
@@ -254,7 +271,7 @@ function resolveTimelineToNow(
 
   if (nowEpoch - roundStartedAt > 45 * 60 * 1000) {
     settleCompletedRound(crashPoint, roundNumber);
-    for (const idx of [0, 1] as const) {
+    for (const idx of SLOT_IDS) {
       if (slots[idx].queuedBet !== null) {
         balance = Number((balance + (slots[idx].queuedBet ?? 0)).toFixed(2));
       }
@@ -294,7 +311,7 @@ function resolveTimelineToNow(
       const liveMult = floorMultiplier(
         multiplierAtFlightSec(phaseElapsedMs / 1000)
       );
-      for (const idx of [0, 1] as const) {
+      for (const idx of SLOT_IDS) {
         const s = slots[idx];
         if (
           s.activeBet &&
@@ -329,7 +346,7 @@ function resolveTimelineToNow(
     // Round finished while away -> settle and advance to next round
     settleCompletedRound(crashPoint, roundNumber);
     let deducted = 0;
-    for (const idx of [0, 1] as const) {
+    for (const idx of SLOT_IDS) {
       const s = slots[idx];
       const wonPrev = s.activeBet !== null && s.activeBet.cashedOutAt !== null;
       const lostPrev =
@@ -416,7 +433,7 @@ function loadBootSession(): {
   hadSavedSession: boolean;
   savedLiveRound?: {
     roundNumber: number;
-    slots: [BetSlotState, BetSlotState];
+    slots: BetSlotsTuple;
   };
 } {
   const now = Date.now();
@@ -440,13 +457,12 @@ function loadBootSession(): {
         parsed.roundStartedAt > 0 &&
         parsed.crashPoint >= 1 &&
         Array.isArray(parsed.slots) &&
-        parsed.slots.length === 2
+        parsed.slots.length >= 2
       ) {
-        const hasPendingBet =
-          parsed.slots[0]?.activeBet !== null ||
-          parsed.slots[0]?.queuedBet !== null ||
-          parsed.slots[1]?.activeBet !== null ||
-          parsed.slots[1]?.queuedBet !== null;
+        const normalizedSlots = normalizeSlotsTuple(parsed.slots);
+        const hasPendingBet = normalizedSlots.some(
+          (s) => s.activeBet !== null || s.queuedBet !== null
+        );
 
         // If crashPoint was Infinity (live server round), clamp safe boot preview until first crash_tick (~100ms)
         const safeCrash = Number.isFinite(parsed.crashPoint)
@@ -458,7 +474,7 @@ function loadBootSession(): {
           savedLiveRound: hasPendingBet
             ? {
                 roundNumber: parsed.roundNumber,
-                slots: parsed.slots as [BetSlotState, BetSlotState],
+                slots: normalizedSlots,
               }
             : undefined,
           resolved: resolveTimelineToNow(
@@ -467,7 +483,7 @@ function loadBootSession(): {
               roundStartedAt: parsed.roundStartedAt,
               crashPoint: safeCrash,
               balance: carriedBalance,
-              slots: parsed.slots as [BetSlotState, BetSlotState],
+              slots: normalizedSlots,
               historyRounds: carriedHistory,
             },
             now
@@ -500,7 +516,7 @@ function loadBootSession(): {
         roundStartedAt,
         crashPoint: generateCrashPoint(estRound),
         balance: carriedBalance,
-        slots: [createInitialSlot(0), createInitialSlot(1)],
+        slots: [createInitialSlot(0), createInitialSlot(1), createInitialSlot(2)],
         historyRounds: carriedHistory,
       },
       now
@@ -514,7 +530,7 @@ export default function App() {
     hadSavedSession: boolean;
     savedLiveRound?: {
       roundNumber: number;
-      slots: [BetSlotState, BetSlotState];
+      slots: BetSlotsTuple;
     };
     initialPerfNow: number;
   } | null>(null);
@@ -552,9 +568,7 @@ export default function App() {
   );
   const [roundNumber, setRoundNumber] = useState<number>(initial.roundNumber);
 
-  const [slots, setSlots] = useState<[BetSlotState, BetSlotState]>(
-    initial.slots
-  );
+  const [slots, setSlots] = useState<BetSlotsTuple>(initial.slots);
 
   const [simulatedRows, setSimulatedRows] = useState<LiveBetRow[]>(
     initial.simulatedRows
@@ -568,7 +582,11 @@ export default function App() {
     initial.historyRounds
   );
   const [activeSheet, setActiveSheet] = useState<ActiveSheet>(null);
-  const [showSecondSlot, setShowSecondSlot] = useState<boolean>(true);
+  const [visibleSlotIds, setVisibleSlotIds] = useState<BetSlotId[]>(() =>
+    initial.slots[2].activeBet !== null || initial.slots[2].queuedBet !== null
+      ? [0, 1, 2]
+      : [0, 1]
+  );
   const [betNotice, setBetNotice] = useState<BetNoticeToast | null>(null);
   const [resultBanner, setResultBanner] = useState<SceneResultBanner | null>(null);
   const [isRoundTransition, setIsRoundTransition] = useState<boolean>(false);
@@ -608,19 +626,19 @@ export default function App() {
   const lastSyncEpochRef = useRef<number>(Date.now());
   const toastCounterRef = useRef<number>(1);
   const lastSettledCrashRoundRef = useRef<number>(-1);
-  const [pendingCashouts, setPendingCashouts] = useState<[boolean, boolean]>([
-    false,
-    false,
-  ]);
+  const [pendingCashouts, setPendingCashouts] = useState<
+    [boolean, boolean, boolean]
+  >([false, false, false]);
   const [isFirebaseClosed, setIsFirebaseClosed] = useState<boolean>(false);
   const isFirebaseClosedRef = useRef<boolean>(false);
   isFirebaseClosedRef.current = isFirebaseClosed;
   const pendingCashoutDataRef = useRef<
     [
       { mult: number; roundId: number; timerId: number } | null,
+      { mult: number; roundId: number; timerId: number } | null,
       { mult: number; roundId: number; timerId: number } | null
     ]
-  >([null, null]);
+  >([null, null, null]);
 
   const persistSession = useCallback(() => {
     try {
@@ -710,7 +728,7 @@ export default function App() {
   }, []);
 
   const settleCashout = useCallback(
-    (slotId: 0 | 1, atMultiplier: number) => {
+    (slotId: BetSlotId, atMultiplier: number) => {
       const targetSlot = slotsRef.current[slotId];
       if (!targetSlot.activeBet || targetSlot.activeBet.cashedOutAt !== null) {
         return;
@@ -723,7 +741,7 @@ export default function App() {
       );
 
       setSlots((prev) => {
-        const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
+        const next: BetSlotsTuple = [prev[0], prev[1], prev[2]];
         const curr = next[slotId];
         if (!curr.activeBet || curr.activeBet.cashedOutAt !== null) return prev;
         next[slotId] = {
@@ -795,12 +813,13 @@ export default function App() {
 
       // Finalize any cashouts locked just before crash + pending auto-cashouts strictly below crashTarget
       let extraPayout = 0;
-      const resolvedSlots: [BetSlotState, BetSlotState] = [
+      const resolvedSlots: BetSlotsTuple = [
         slotsRef.current[0],
         slotsRef.current[1],
+        slotsRef.current[2],
       ];
       let clearedAnyPending = false;
-      for (const idx of [0, 1] as const) {
+      for (const idx of SLOT_IDS) {
         const pendingLock = pendingCashoutDataRef.current[idx];
         if (pendingLock) {
           window.clearTimeout(pendingLock.timerId);
@@ -850,7 +869,7 @@ export default function App() {
         }
       }
       if (clearedAnyPending) {
-        setPendingCashouts([false, false]);
+        setPendingCashouts([false, false, false]);
       }
       if (extraPayout > 0) {
         slotsRef.current = resolvedSlots;
@@ -911,7 +930,7 @@ export default function App() {
       const prevSlots = slotsRef.current;
       const hadUnresolvedPrev =
         lastSettledCrashRoundRef.current !== currentRoundId &&
-        (prevSlots[0].activeBet !== null || prevSlots[1].activeBet !== null);
+        prevSlots.some((s) => s.activeBet !== null);
 
       if (hadUnresolvedPrev && currentRoundId > 0) {
         const cp = Number.isFinite(crashPointRef.current)
@@ -961,12 +980,13 @@ export default function App() {
       }
 
       let deductedTotal = 0;
-      const updatedSlots: [BetSlotState, BetSlotState] = [
+      const updatedSlots: BetSlotsTuple = [
         prevSlots[0],
         prevSlots[1],
+        prevSlots[2],
       ];
 
-      for (const idx of [0, 1] as const) {
+      for (const idx of SLOT_IDS) {
         const s = prevSlots[idx];
         const wonPrev =
           s.activeBet !== null && s.activeBet.cashedOutAt !== null;
@@ -1084,11 +1104,12 @@ export default function App() {
 
       // Safely cancel pending cashout timers and refund any unsettled bets
       let refund = 0;
-      const nextSlots: [BetSlotState, BetSlotState] = [
+      const nextSlots: BetSlotsTuple = [
         slotsRef.current[0],
         slotsRef.current[1],
+        slotsRef.current[2],
       ];
-      for (const idx of [0, 1] as const) {
+      for (const idx of SLOT_IDS) {
         const lock = pendingCashoutDataRef.current[idx];
         if (lock) {
           window.clearTimeout(lock.timerId);
@@ -1105,7 +1126,7 @@ export default function App() {
           nextSlots[idx] = { ...s, activeBet: null, queuedBet: null };
         }
       }
-      setPendingCashouts([false, false]);
+      setPendingCashouts([false, false, false]);
       if (refund > 0) {
         setBalance((b) => Number((b + refund).toFixed(2)));
         slotsRef.current = nextSlots;
@@ -1387,21 +1408,21 @@ export default function App() {
     triggerCrashState,
   ]);
 
-  const handleChangeInput = (slotId: 0 | 1, value: string) => {
+  const handleChangeInput = (slotId: BetSlotId, value: string) => {
     let sanitized = value.replace(/[^0-9.]/g, '');
     if (/^0[0-9]/.test(sanitized)) {
       sanitized = sanitized.replace(/^0+/, '') || '0';
     }
     setSlots((prev) => {
-      const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
+      const next: BetSlotsTuple = [prev[0], prev[1], prev[2]];
       next[slotId] = { ...next[slotId], inputValue: sanitized };
       return next;
     });
   };
 
-  const handlePickPreset = (slotId: 0 | 1, amount: number) => {
+  const handlePickPreset = (slotId: BetSlotId, amount: number) => {
     setSlots((prev) => {
-      const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
+      const next: BetSlotsTuple = [prev[0], prev[1], prev[2]];
       const currentVal = Number.parseFloat(next[slotId].inputValue);
       const safeCurrent =
         Number.isFinite(currentVal) && currentVal > 0 ? currentVal : 0;
@@ -1411,15 +1432,28 @@ export default function App() {
     });
   };
 
-  const handleClearInput = (slotId: 0 | 1) => {
+  const handleClearInput = (slotId: BetSlotId) => {
     setSlots((prev) => {
-      const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
+      const next: BetSlotsTuple = [prev[0], prev[1], prev[2]];
       next[slotId] = { ...next[slotId], inputValue: '0' };
       return next;
     });
   };
 
-  const handleAction = (slotId: 0 | 1) => {
+  const handleAddBetPanel = () => {
+    setVisibleSlotIds((prev) => {
+      const nextId = SLOT_IDS.find((id) => !prev.includes(id));
+      return nextId !== undefined ? [...prev, nextId] : prev;
+    });
+  };
+
+  const handleCloseBetPanel = (slotId: BetSlotId) => {
+    setVisibleSlotIds((prev) =>
+      prev.length > 1 ? prev.filter((id) => id !== slotId) : prev
+    );
+  };
+
+  const handleAction = (slotId: BetSlotId) => {
     if (isFirebaseClosedRef.current) {
       showNotice('error', 'تم إيقاف التوقعات — قاعدة البيانات مغلقة');
       return;
@@ -1448,7 +1482,7 @@ export default function App() {
         const snapshotRound = roundNumberRef.current;
 
         setPendingCashouts((prev) => {
-          const next: [boolean, boolean] = [prev[0], prev[1]];
+          const next: [boolean, boolean, boolean] = [prev[0], prev[1], prev[2]];
           next[slotId] = true;
           return next;
         });
@@ -1457,7 +1491,7 @@ export default function App() {
           const locked = pendingCashoutDataRef.current[slotId];
           pendingCashoutDataRef.current[slotId] = null;
           setPendingCashouts((prev) => {
-            const next: [boolean, boolean] = [prev[0], prev[1]];
+            const next: [boolean, boolean, boolean] = [prev[0], prev[1], prev[2]];
             next[slotId] = false;
             return next;
           });
@@ -1496,7 +1530,7 @@ export default function App() {
 
     if (currPhase === 'waiting') {
       setSlots((prev) => {
-        const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
+        const next: BetSlotsTuple = [prev[0], prev[1], prev[2]];
         next[slotId] = {
           ...next[slotId],
           activeBet: { stake: roundedStake, cashedOutAt: null, payout: 0 },
@@ -1506,7 +1540,7 @@ export default function App() {
       showNotice('success', 'تم قبول الرهان!');
     } else {
       setSlots((prev) => {
-        const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
+        const next: BetSlotsTuple = [prev[0], prev[1], prev[2]];
         next[slotId] = { ...next[slotId], queuedBet: roundedStake };
         return next;
       });
@@ -1514,7 +1548,7 @@ export default function App() {
     }
   };
 
-  const handleSaveAutoPlay = (slotId: 0 | 1, config: AutoPlayConfig) => {
+  const handleSaveAutoPlay = (slotId: BetSlotId, config: AutoPlayConfig) => {
     const slot = slots[slotId];
     const shouldPlaceNow =
       phase === 'waiting' &&
@@ -1526,7 +1560,7 @@ export default function App() {
     }
 
     setSlots((prev) => {
-      const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
+      const next: BetSlotsTuple = [prev[0], prev[1], prev[2]];
       next[slotId] = {
         ...next[slotId],
         inputValue: String(config.baseStake),
@@ -1540,9 +1574,9 @@ export default function App() {
     showNotice('success', `تم تفعيل التشغيل التلقائي عند x${config.autoCashout}`);
   };
 
-  const handleDisableAutoPlay = (slotId: 0 | 1) => {
+  const handleDisableAutoPlay = (slotId: BetSlotId) => {
     setSlots((prev) => {
-      const next: [BetSlotState, BetSlotState] = [prev[0], prev[1]];
+      const next: BetSlotsTuple = [prev[0], prev[1], prev[2]];
       next[slotId] = {
         ...next[slotId],
         autoConfig: { ...next[slotId].autoConfig, enabled: false },
@@ -1682,41 +1716,33 @@ export default function App() {
                   isRoundTransition ? 'is-round-transition' : ''
                 }`}
               >
-                <BetPanel
-                  slot={slots[0]}
-                  phase={phase}
-                  isCashoutPending={pendingCashouts[0]}
-                  isDisabled={isFirebaseClosed}
-                  onChangeInput={handleChangeInput}
-                  onPickPreset={handlePickPreset}
-                  onClearInput={handleClearInput}
-                  onAction={handleAction}
-                  onOpenAuto={(id) => setActiveSheet({ type: 'auto', slotId: id })}
-                />
-
-                {showSecondSlot && (
+                {visibleSlotIds.map((slotId) => (
                   <BetPanel
-                    slot={slots[1]}
+                    key={slotId}
+                    slot={slots[slotId]}
                     phase={phase}
-                    isCashoutPending={pendingCashouts[1]}
+                    isCashoutPending={pendingCashouts[slotId]}
                     isDisabled={isFirebaseClosed}
+                    canClose={visibleSlotIds.length > 1}
                     onChangeInput={handleChangeInput}
                     onPickPreset={handlePickPreset}
                     onClearInput={handleClearInput}
                     onAction={handleAction}
                     onOpenAuto={(id) => setActiveSheet({ type: 'auto', slotId: id })}
-                    onClosePanel={() => setShowSecondSlot(false)}
+                    onClosePanel={handleCloseBetPanel}
                   />
-                )}
+                ))}
 
-                <button
-                  type="button"
-                  className="add-bet-btn"
-                  onClick={() => setShowSecondSlot(true)}
-                >
-                  <span>+</span>
-                  <span>إضافة رهان</span>
-                </button>
+                {visibleSlotIds.length < 3 && (
+                  <button
+                    type="button"
+                    className="add-bet-btn"
+                    onClick={handleAddBetPanel}
+                  >
+                    <span>+</span>
+                    <span>إضافة رهان</span>
+                  </button>
+                )}
               </div>
 
               <section className="stats-row">

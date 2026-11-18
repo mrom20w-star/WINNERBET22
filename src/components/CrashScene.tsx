@@ -66,18 +66,18 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
   }
 
   const t = Math.max(0, elapsedSec);
-  const dx = 705 * (1 - Math.exp(-t / 4.2));
-  const dy = 200 * Math.pow(1 - Math.exp(-t / 3.8), 1.15);
+  const dx = 755 * (1 - Math.exp(-t / 5.4));
+  const dy = 192 * Math.pow(1 - Math.exp(-t / 4.2), 1.25);
 
   const tipX = START_X + dx;
   const tipY = BASELINE_Y - dy;
-  const c1x = START_X + dx * 0.48;
+  const c1x = START_X + dx * 0.44;
   const c1y = BASELINE_Y;
-  const c2x = START_X + dx * 0.78;
-  const c2y = BASELINE_Y - dy * 0.36;
+  const c2x = START_X + dx * 0.74;
+  const c2y = BASELINE_Y - dy * 0.30;
 
-  // Monotonically easing upward pitch (never dips down mid-flight)
-  const angleDeg = -7.5 * (1 - Math.exp(-t / 0.7));
+  // Smooth monotonic upward takeoff pitch matching the video (~0deg -> -14.5deg)
+  const angleDeg = -14.5 * (1 - Math.exp(-t / 1.8));
 
   return {
     pathD: `M ${START_X} ${BASELINE_Y} C ${c1x} ${c1y} ${c2x} ${c2y} ${tipX} ${tipY}`,
@@ -361,6 +361,22 @@ export function CrashScene({
         </div>
 
         <div className="chart-grid" />
+        <svg
+          className="chart-layer chart-guides-layer"
+          viewBox="0 0 1000 356"
+          aria-hidden="true"
+        >
+          {[66, 111, 156, 201, 246].map((yPos) => (
+            <line
+              key={yPos}
+              x1={START_X}
+              y1={yPos}
+              x2={965}
+              y2={yPos}
+              className="chart-guide-line"
+            />
+          ))}
+        </svg>
         <div className="chart-axis chart-axis-y">
           <i />
           <i />

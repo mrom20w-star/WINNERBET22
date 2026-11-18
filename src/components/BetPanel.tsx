@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import { PRESET_STAKES } from '../data/mockRounds';
-import { BetSlotState, GamePhase } from '../types/crash';
+import { BetSlotId, BetSlotState, GamePhase } from '../types/crash';
 
 interface BetPanelProps {
   slot: BetSlotState;
   phase: GamePhase;
   isCashoutPending?: boolean;
   isDisabled?: boolean;
-  onChangeInput: (slotId: 0 | 1, value: string) => void;
-  onPickPreset: (slotId: 0 | 1, amount: number) => void;
-  onClearInput: (slotId: 0 | 1) => void;
-  onAction: (slotId: 0 | 1) => void;
-  onOpenAuto: (slotId: 0 | 1) => void;
-  onClosePanel?: () => void;
+  canClose?: boolean;
+  onChangeInput: (slotId: BetSlotId, value: string) => void;
+  onPickPreset: (slotId: BetSlotId, amount: number) => void;
+  onClearInput: (slotId: BetSlotId) => void;
+  onAction: (slotId: BetSlotId) => void;
+  onOpenAuto: (slotId: BetSlotId) => void;
+  onClosePanel?: (slotId: BetSlotId) => void;
 }
 
 export function BetPanel({
@@ -20,6 +21,7 @@ export function BetPanel({
   phase,
   isCashoutPending = false,
   isDisabled = false,
+  canClose = false,
   onChangeInput,
   onPickPreset,
   onClearInput,
@@ -56,7 +58,6 @@ export function BetPanel({
   const hasWaitingBet = !isDisabled && isWaiting && slot.activeBet !== null;
   const hasQueuedNext = !isDisabled && slot.queuedBet !== null;
 
-  // Controls are dimmed/locked while waiting bet is accepted, active flight bet awaits cashout, or queued for next round
   const isInputsLocked =
     isDisabled ||
     isCashoutPending ||
@@ -65,6 +66,14 @@ export function BetPanel({
     hasQueuedNext;
 
   const isAcceptedStyle = hasWaitingBet || hasQueuedNext;
+
+  const showCloseBtn =
+    canClose &&
+    onClosePanel !== undefined &&
+    !hasWaitingBet &&
+    !hasUnsettledFlightBet &&
+    !hasQueuedNext &&
+    !isCashoutPending;
 
   const showNextRoundSublabel =
     !isCashoutPending &&
@@ -77,7 +86,7 @@ export function BetPanel({
   if (isCashoutPending) {
     primaryLabel = 'جاري السحب';
   } else if (hasUnsettledFlightBet && slot.activeBet) {
-    primaryLabel = 'أجمع';
+    primaryLabel = 'اجمع';
   } else if (hasWaitingBet || hasQueuedNext) {
     primaryLabel = 'تم قبول الرهان';
   } else {
@@ -88,20 +97,11 @@ export function BetPanel({
     <section
       className={`bet-panel ${hasUnsettledFlightBet ? 'has-bet' : ''} ${
         isAcceptedStyle ? 'is-accepted' : ''
-      } ${isInputsLocked && !hasUnsettledFlightBet ? 'is-locked' : ''}`}
+      } ${isInputsLocked && !hasUnsettledFlightBet ? 'is-locked' : ''} ${
+        isInputsLocked ? 'is-inputs-locked' : ''
+      }`}
       aria-label="لوحة الرهان"
     >
-      {onClosePanel && (
-        <button
-          type="button"
-          className="bet-panel-close"
-          aria-label="إغلاق لوحة الرهان"
-          onClick={onClosePanel}
-        >
-          ×
-        </button>
-      )}
-
       <div className="bet-controls">
         <label className="amount-input">
           <input
@@ -140,21 +140,39 @@ export function BetPanel({
       </div>
 
       <div className="bet-actions">
-        <button
-          type="button"
-          className={`auto-button ${slot.autoConfig.enabled ? 'is-on' : ''} ${
-            pressedKey === 'auto' ? 'is-pressed' : ''
-          }`}
-          disabled={isDisabled}
-          onClick={() => {
-            triggerPress('auto');
-            onOpenAuto(slot.id);
-          }}
-        >
-          {slot.autoConfig.enabled
-            ? 'إيقاف التشغيل التلقائي'
-            : 'تمكين التشغيل التلقائي'}
-        </button>
+        <div className="bet-actions-top">
+          <button
+            type="button"
+            className={`auto-button ${slot.autoConfig.enabled ? 'is-on' : ''} ${
+              pressedKey === 'auto' ? 'is-pressed' : ''
+            }`}
+            disabled={isDisabled}
+            onClick={() => {
+              triggerPress('auto');
+              onOpenAuto(slot.id);
+            }}
+          >
+            {slot.autoConfig.enabled ? (
+              <span>إيقاف التشغيل التلقائي</span>
+            ) : (
+              <span className="auto-btn-lines">
+                <span>تمكين التشغيل</span>
+                <span>التلقائي</span>
+              </span>
+            )}
+          </button>
+
+          {showCloseBtn && (
+            <button
+              type="button"
+              className="bet-panel-close"
+              aria-label="إغلاق لوحة الرهان"
+              onClick={() => onClosePanel(slot.id)}
+            >
+              ×
+            </button>
+          )}
+        </div>
 
         <button
           type="button"

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActiveSheet,
   AutoPlayConfig,
+  BetSlotId,
   HistoryRound,
   StopAction,
 } from '../types/crash';
@@ -20,8 +21,8 @@ interface CrashModalsProps {
   historyRounds: HistoryRound[];
   currentSlotAuto?: AutoPlayConfig;
   currentSlotInput?: string;
-  onSaveAutoPlay: (slotId: 0 | 1, config: AutoPlayConfig) => void;
-  onDisableAutoPlay: (slotId: 0 | 1) => void;
+  onSaveAutoPlay: (slotId: BetSlotId, config: AutoPlayConfig) => void;
+  onDisableAutoPlay: (slotId: BetSlotId) => void;
   balance: number;
   onDeposit: (amount: number) => void;
   notifications: NotificationItem[];

@@ -36,12 +36,12 @@ export const MAXBET_POLL_INTERVAL_MS = 400;
 
 export function multiplierAtFlightSec(sec: number): number {
   const t = Math.max(0, sec);
-  return 1 + 0.014 * t + 0.02 * t * t;
+  return 1 + 0.012 * t + 0.013 * t * t;
 }
 
 export function flightSecForMultiplier(mult: number): number {
   const delta = Math.max(0, mult - 1);
-  return (-0.014 + Math.sqrt(0.000196 + 0.08 * delta)) / 0.04;
+  return (-0.012 + Math.sqrt(0.000144 + 0.052 * delta)) / 0.026;
 }
 
 async function fetchWithTimeout(

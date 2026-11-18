@@ -66,8 +66,8 @@ function getTrajectoryGeometry(phase: GamePhase, elapsedSec: number) {
   }
 
   const t = Math.max(0, elapsedSec);
-  const dx = 755 * (1 - Math.exp(-t / 5.4));
-  const dy = 192 * Math.pow(1 - Math.exp(-t / 4.2), 1.25);
+  const dx = 665 * (1 - Math.exp(-t / 3.8));
+  const dy = 170 * Math.pow(1 - Math.exp(-t / 3.2), 1.35);
 
   const tipX = START_X + dx;
   const tipY = BASELINE_Y - dy;

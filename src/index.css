@@ -193,8 +193,10 @@ input, textarea, [contenteditable=true] {
 .c1x .game-content {
   background: var(--game-bg);
   grid-template-rows: 9.0cqw 32.8cqw auto auto auto;
+  align-content: start;
   min-height: 100%;
   display: grid;
+  overflow-anchor: none;
 }
 
 .c1x .game-tabs {
@@ -488,11 +490,13 @@ input, textarea, [contenteditable=true] {
 
 .c1x .bet-stack {
   background: var(--game-bg);
-  grid-template-rows: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 2.0cqw;
   padding: 1.8cqw 1.1cqw 2.1cqw;
-  display: grid;
   position: relative;
+  overflow-anchor: none;
 }
 
 .c1x .bet-notice {
@@ -522,29 +526,22 @@ input, textarea, [contenteditable=true] {
   color: var(--loss);
 }
 
-.c1x .bet-stack button,
-.c1x .bet-stack input {
-  transition: opacity .22s ease-out, transform .14s ease-out;
-}
-
-.c1x .bet-stack.is-round-transition button,
-.c1x .bet-stack.is-round-transition input {
-  opacity: .42;
-  pointer-events: none;
-}
-
 .c1x .bet-panel {
   box-sizing: border-box;
   position: relative;
   background: var(--panel);
   border-radius: 6px;
   grid-template-columns: 1fr 38.5cqw;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-areas: "controls actions";
   gap: 1.5cqw;
+  flex: none;
   height: 28.6cqw;
-  min-height: 0;
+  min-height: 28.6cqw;
+  max-height: 28.6cqw;
   padding: 2.1cqw;
   display: grid;
+  overflow: hidden;
 }
 
 .c1x .bet-panel-close {
@@ -564,6 +561,7 @@ input, textarea, [contenteditable=true] {
 }
 
 .c1x .add-bet-btn {
+  flex: none;
   width: 60.5%;
   margin: 0.2cqw auto 0;
   height: 8.6cqw;
@@ -587,9 +585,10 @@ input, textarea, [contenteditable=true] {
 
 .c1x .bet-controls {
   grid-area: controls;
-  grid-template-rows: 8.2cqw 1fr;
+  grid-template-rows: 8.2cqw minmax(0, 1fr);
   gap: 1.45cqw;
   min-width: 0;
+  min-height: 0;
   display: grid;
 }
 
@@ -665,9 +664,10 @@ input, textarea, [contenteditable=true] {
 
 .c1x .bet-actions {
   grid-area: actions;
-  grid-template-rows: 8.2cqw 1fr;
+  grid-template-rows: 8.2cqw minmax(0, 1fr);
   gap: 1.45cqw;
   min-width: 0;
+  min-height: 0;
   display: grid;
 }
 
@@ -676,6 +676,7 @@ input, textarea, [contenteditable=true] {
   align-items: stretch;
   gap: 1.3cqw;
   min-width: 0;
+  min-height: 0;
 }
 
 .c1x .bet-actions button {
@@ -723,6 +724,8 @@ input, textarea, [contenteditable=true] {
   border: 0;
   padding: 0 3%;
   place-items: center;
+  min-height: 0;
+  overflow: hidden;
   font-size: clamp(13px, 4.1cqw, 20px);
   font-weight: 700;
   line-height: 1;
@@ -816,8 +819,9 @@ input, textarea, [contenteditable=true] {
 
 .c1x .bets-list {
   background: var(--scene);
-  min-height: 116cqw;
+  min-height: 198cqw;
   padding: 0 6.4% 5cqw;
+  overflow-anchor: none;
 }
 
 .c1x .list-head,
@@ -1396,8 +1400,10 @@ input, textarea, [contenteditable=true] {
   }
 
   .c1x .bet-stack {
+    display: grid;
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto;
+    align-content: start;
     gap: 12px;
     padding: 10px 16px;
   }
@@ -1411,8 +1417,11 @@ input, textarea, [contenteditable=true] {
 
   .c1x .bet-panel {
     grid-template-columns: 1fr clamp(185px, 21vw, 248px);
+    grid-template-rows: minmax(0, 1fr);
     gap: 12px;
     height: 174px;
+    min-height: 174px;
+    max-height: 174px;
     padding: 13px;
     border-radius: 7px;
   }
@@ -1432,7 +1441,7 @@ input, textarea, [contenteditable=true] {
   }
 
   .c1x .bet-controls {
-    grid-template-rows: 48px 1fr;
+    grid-template-rows: 48px minmax(0, 1fr);
     gap: 10px;
   }
 
@@ -1456,7 +1465,7 @@ input, textarea, [contenteditable=true] {
   }
 
   .c1x .bet-actions {
-    grid-template-rows: 48px 1fr;
+    grid-template-rows: 48px minmax(0, 1fr);
     gap: 10px;
   }
 
@@ -1508,7 +1517,7 @@ input, textarea, [contenteditable=true] {
   }
 
   .c1x .bets-list {
-    min-height: 420px;
+    min-height: 1164px;
     padding: 0 24px 32px;
   }
 

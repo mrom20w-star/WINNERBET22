@@ -589,7 +589,6 @@ export default function App() {
   );
   const [betNotice, setBetNotice] = useState<BetNoticeToast | null>(null);
   const [resultBanner, setResultBanner] = useState<SceneResultBanner | null>(null);
-  const [isRoundTransition, setIsRoundTransition] = useState<boolean>(false);
   const [notifications, setNotifications] = useState([
     {
       id: 'n-1',
@@ -685,7 +684,6 @@ export default function App() {
       setHistoryRounds(resolved.historyRounds);
       setSimulatedRows(resolved.simulatedRows);
       setBaseStats(resolved.baseStats);
-      setIsRoundTransition(false);
     },
     []
   );
@@ -1305,7 +1303,6 @@ export default function App() {
           phaseRef.current = 'flight';
           setFlightStartTime(now);
           setPhase('flight');
-          setIsRoundTransition(false);
           syncRoundPhaseToFirebase({
             roundNumber: roundNumberRef.current,
             phase: 'flight',
@@ -1391,8 +1388,6 @@ export default function App() {
           setCountdownSeconds(MAXBET_WAITING_SEC);
           setCrashedMultiplier(1.0);
           setFlightCrashedSec(0);
-          setIsRoundTransition(true);
-          window.setTimeout(() => setIsRoundTransition(false), 320);
         }
       }
 
@@ -1711,11 +1706,7 @@ export default function App() {
                 isFirebaseClosed={isFirebaseClosed}
               />
 
-              <div
-                className={`bet-stack ${
-                  isRoundTransition ? 'is-round-transition' : ''
-                }`}
-              >
+              <div className="bet-stack">
                 {visibleSlotIds.map((slotId) => (
                   <BetPanel
                     key={slotId}

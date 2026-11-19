@@ -582,11 +582,10 @@ export default function App() {
     initial.historyRounds
   );
   const [activeSheet, setActiveSheet] = useState<ActiveSheet>(null);
-  const [visibleSlotIds, setVisibleSlotIds] = useState<BetSlotId[]>(() =>
+  const visibleSlotIds: BetSlotId[] =
     initial.slots[2].activeBet !== null || initial.slots[2].queuedBet !== null
       ? [0, 1, 2]
-      : [0, 1]
-  );
+      : [0, 1];
   const [betNotice, setBetNotice] = useState<BetNoticeToast | null>(null);
   const [resultBanner, setResultBanner] = useState<SceneResultBanner | null>(null);
   const [notifications, setNotifications] = useState([
@@ -1435,19 +1434,6 @@ export default function App() {
     });
   };
 
-  const handleAddBetPanel = () => {
-    setVisibleSlotIds((prev) => {
-      const nextId = SLOT_IDS.find((id) => !prev.includes(id));
-      return nextId !== undefined ? [...prev, nextId] : prev;
-    });
-  };
-
-  const handleCloseBetPanel = (slotId: BetSlotId) => {
-    setVisibleSlotIds((prev) =>
-      prev.length > 1 ? prev.filter((id) => id !== slotId) : prev
-    );
-  };
-
   const handleAction = (slotId: BetSlotId) => {
     if (isFirebaseClosedRef.current) {
       showNotice('error', 'تم إيقاف التوقعات — قاعدة البيانات مغلقة');
@@ -1714,26 +1700,14 @@ export default function App() {
                     phase={phase}
                     isCashoutPending={pendingCashouts[slotId]}
                     isDisabled={isFirebaseClosed}
-                    canClose={visibleSlotIds.length > 1}
+                    canClose={false}
                     onChangeInput={handleChangeInput}
                     onPickPreset={handlePickPreset}
                     onClearInput={handleClearInput}
                     onAction={handleAction}
                     onOpenAuto={(id) => setActiveSheet({ type: 'auto', slotId: id })}
-                    onClosePanel={handleCloseBetPanel}
                   />
                 ))}
-
-                {visibleSlotIds.length < 3 && (
-                  <button
-                    type="button"
-                    className="add-bet-btn"
-                    onClick={handleAddBetPanel}
-                  >
-                    <span>+</span>
-                    <span>إضافة رهان</span>
-                  </button>
-                )}
               </div>
 
               <section className="stats-row">
